@@ -4,6 +4,7 @@ library(dplyr)
 library(ggplot2)
 library(tidyr)
 library(ggfortify)
+library(gridExtra)
 
 
 # Importation des jeux de donnees ----------
@@ -78,6 +79,8 @@ abund <- abund %>%
   summarize(across(value, sum))
 
 abund$month <- substr(abund$sample, 5, 6)
+abund$month[abund$month != 10] <- gsub("0", "", abund$month[abund$month != 10])
+abund$month <- factor(abund$month, levels = c("1", "2", "3", "4", "5", "6", "8", "10", "11", "12"))
 
 
 # Stacked barplot
@@ -89,19 +92,51 @@ ggplot(data = abund, aes(paste0(sample, "&", month), fill = order, y = value)) +
   theme(legend.key.size = unit(0.4, 'cm'),
         legend.text = element_text(size = 10),
         axis.title.x = element_text(size = 8),
-        axis.text.x = element_text(angle = 80, hjust = 1)) +
+        axis.text.x = element_text(size = 10, angle = 80, hjust = 1)) +
+  xlab("sample") +
+  ggtitle("Relative abundance of Radiolarian orders for each sampling date") +
   scale_y_continuous(expand = c(0, 0)) +
   scale_fill_manual(values = order_palette)
 
 # Courbes d'abondance relative
-m <- abund[abund$order == "Spumellaria", ]$month
 
-ggplot(data = abund[abund$order == "Spumellaria", ], aes(x = sample, y = value, group = 1)) +
-  geom_line() +
-  geom_point() +
-  geom_rect(fill = hue_pal()(4)[m], xmin = -Inf, xmax = Inf,
-            ymin = -Inf,ymax = Inf, alpha = 0.1, color = "black") +
-  theme(axis.text.x = element_text(angle = 80, hjust = 1))
+ab_plots <- lapply(unique(abund$order), function(i) {
+  ggplot(subset(abund, order == i), aes(x = sample, y = value, fill = month)) +
+    geom_col() +
+    guides(fill = guide_legend(ncol = 2)) +
+    theme(axis.text.x = element_blank()) +
+    ylab("relative abundance") +
+    ggtitle(i) +
+    scale_fill_manual(values = months_palette)
+})
+
+grid.arrange(grobs = ab_plots, ncol=4)
+
+PlotAbundance = function(order) {
+  ggplot(data = abund[abund$order == order, ], aes(x = sample, y = value, fill = month)) +
+    geom_col() +
+    theme(axis.text.x = element_text(size = 8, angle = 80, hjust = 1)) +
+    ylab("relative abundance") +
+    scale_fill_manual(values = months_palette)
+}
+
+PlotAbundance("Acantharea_B")
+
+
+# Courbes de parametres physicochimiques ----------
+
+var_plots <- lapply(unique(colnames(META))[-c(1:7)], function(i) {
+  ggplot(data = META, aes(x = sample_id, y = .data[[i]], group = 1)) +
+    geom_line(aes(color = factor(month))) +
+    geom_point(aes(color = factor(month))) +
+    theme(axis.text.x = element_blank()) +
+    ylab("value") +
+    labs(color = "month") +
+    ggtitle(i) +
+    scale_color_manual(values = months_palette)
+})
+
+grid.arrange(grobs = var_plots, ncol=4)
 
 
 # ACP ----------

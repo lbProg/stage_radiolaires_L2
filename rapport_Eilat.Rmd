@@ -1,0 +1,239 @@
+---
+title: "rapport_Eilat"
+author: "L. Bastin"
+date: "2023-06-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+```
+
+##  Importation des librairies
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(ggfortify)
+library(gridExtra)
+```
+
+## importation des jeux de données
+
+```{r}
+TAX <- read.csv("Data/TAX_pr2_Radiolaria_GoA.csv")
+META <- read.csv("Data/META_Radiolaria_GoA.csv")
+OTU <- read.csv("Data/OTU_Radiolaria_GoA.csv")
+```
+
+## Création de palettes de couleur
+
+Une palette pour les ordres avec un gradient de bleus pour les acanthaires et un gradient d'oranges pour les groupes environnementaux. Une palette pour les mois qui passe par toutes les couleurs de l'arc-en-ciel afin de montrer la continuité de la série sans être trop biaisée avec des couleurs chaudes pour certains mois et froides pour d'autres.
+```{r, warning=FALSE, message=FALSE}
+library(RColorBrewer)
+```
+
+
+```{r}
+order_palette <- c(colorRampPalette(brewer.pal(9, "Blues"))(10),
+                   "red", 
+                   colorRampPalette(brewer.pal(3, "Oranges"))(4),
+                   "black")
+
+names(order_palette) <- c("Acantharea_1",
+                          "Acantharea_2",
+                          "Acantharea_3",
+                          "Acantharea_4",
+                          "Acantharea_A",
+                          "Acantharea_B",
+                          "Acantharea_C",
+                          "Acantharea_D",
+                          "Acantharea_E",
+                          "Acantharea_F",
+                          "Nassellaria",
+                          "RAD-A_X",
+                          "RAD-B_X",
+                          "RAD-C_X",
+                          "Radiolaria_XX",
+                          "Spumellaria")
+
+
+months_palette <- rainbow(10)
+names(months_palette) <- c("1", "2", "3", "4", "5", "6", "8", "10", "11", "12")
+```
+
+
+## Description des jeux de données
+
+```{r}
+NumberOf = function(class) {
+  return(length(unique(TAX$Family[TAX$Class == class])))
+}
+
+summ <- data.frame("nb_OTUs" = nrow(OTU),
+                  "max_abund" = max(OTU[-1]),
+                  "mean_abund" = mean(as.matrix(OTU[-1])),
+                  "nb_samples" = ncol(OTU[-1]),
+                  "nb_days" = length(unique(substr(colnames(OTU[-1]), 3, 8))),
+                  "nb_variables" = ncol(META[7:22]),
+                  "nb_families" = length(unique(TAX$Family)),
+                  "nb_Acantharea" = NumberOf("Acantharea"),
+                  "nb_Polycystinea" = NumberOf("Polycystinea"),
+                  "nb_RAD-A" = NumberOf("RAD-A"),
+                  "nb_RAD-B" = NumberOf("RAD-B"),
+                  "nb_RAD-C" = NumberOf("RAD-C"),
+                  "nb_Radiolaria_X" = NumberOf("Radiolaria_X"))
+```
+
+```{r, echo=FALSE}
+summ
+```
+
+## Normalisation du tabeau d'OTU
+
+Chaque colonne est normalisée individuellement sur 1.
+```{r}
+OTU_norm <- mapply('/', OTU[-1], colSums(OTU[, -1]))
+OTU_norm <- cbind(OTU[1], OTU_norm)
+```
+
+```{r, echo=FALSE}
+kable(head(OTU_norm[1:8]))
+```
+
+## Création d'un tableau d'abondance
+
+Le tableau d'abondance contient une partie de la classification taxonomique, l'échantillon ainsi que la valeur d'abondance normalisée correspondant. Les échantillons prélevés au DCM ne sont pas pris en compte pour l'instant.
+```{r}
+abund <- cbind("class" = TAX$Class[which(OTU_norm$X == TAX$X)],
+               "order" = TAX$Order[which(OTU_norm$X == TAX$X)],
+               OTU_norm[-1])
+abund <- select(abund, -contains("dcm"))
+abund <- gather(abund, "sample", "value", -c(1, 2))
+```
+
+```{r, echo=FALSE}
+kable(head(abund))
+```
+
+Les lignes avec la même taxonomie et le même échantillon sont regroupées entre elles (l'ordre est similaire mais pas forcément la famille par exemple).
+```{r, message=FALSE}
+abund <- abund %>%
+  group_by(sample, class, order) %>%
+  summarize(across(value, sum))
+```
+
+```{r, echo=FALSE}
+kable(head(abund))
+```
+
+Une colonne qui contient le numéro de mois est rajoutée. Le format du mois est modifié pour la compatibilité (janvier 01 -> 1)
+```{r}
+abund$month <- substr(abund$sample, 5, 6)
+abund$month[abund$month != 10] <- gsub("0", "", abund$month[abund$month != 10])
+abund$month <- factor(abund$month, levels = c("1", "2", "3", "4", "5", "6", "8", "10", "11", "12"))
+```
+
+## Barplot d'abondance relative
+
+En x l'identifiant de chaque échantillon, avec un regroupement par mois pour plus de lisibilité. Les couleurs sont similaires pour chaque groupe (les acanthaires en bleu et les groupes environnementaux en orange).
+
+```{r, fig.width=12, fig.height=8}
+ggplot(data = abund, aes(paste0(sample, "&", month), fill = order, y = value)) +
+  geom_bar(stat = "identity") +
+  guides(x = ggh4x::guide_axis_nested(delim = "&"), vjust = 1) +
+  guides(fill = guide_legend(ncol = 2)) +
+  theme(legend.key.size = unit(0.4, 'cm'),
+        legend.text = element_text(size = 10),
+        axis.title.x = element_text(size = 8),
+        axis.text.x = element_text(size = 10, angle = 80, hjust = 1)) +
+  xlab("sample") +
+  ggtitle("Relative abundance of Radiolarian orders for each sampling date") +
+  scale_y_continuous(expand = c(0, 0)) +
+  scale_fill_manual(values = order_palette)
+```
+
+## Courbes d'abondance relative
+
+L'abondance relative de chaque ordre est représentée individuellement. La couleur de chaque barre représente le mois de l'année.
+
+```{r}
+ab_plots <- lapply(unique(abund$order), function(i) {
+  ggplot(subset(abund, order == i), aes(x = sample, y = value, fill = month)) +
+    geom_col() +
+    guides(fill = guide_legend(ncol = 2)) +
+    theme(axis.text.x = element_blank(),
+          legend.position = "none") +
+    ylab("relative abundance") +
+    ggtitle(i) +
+    scale_fill_manual(values = months_palette)
+})
+```
+
+```{r, echo=FALSE, fig.width=10, fig.height=10}
+grid.arrange(grobs = ab_plots, ncol = 4)
+```
+
+## Courbes de paramètres physicochimiques
+
+L'évolution de chaque paramètre est représentée de la même manière que l'abondance.
+
+```{r}
+metadata = drop_na(META)
+
+var_plots <- lapply(unique(colnames(metadata))[-c(1:7)], function(i) {
+  ggplot(data = metadata, aes(x = sample_id, y = .data[[i]], group = 1)) +
+    geom_line(aes(color = factor(month))) +
+    geom_point(aes(color = factor(month))) +
+    theme(axis.text.x = element_blank()) +
+    ylab("value") +
+    labs(color = "month") +
+    ggtitle(i) +
+    scale_color_manual(values = months_palette)
+})
+```
+
+```{r, echo=FALSE, fig.width=10, fig.height=10}
+grid.arrange(grobs = var_plots, ncol=4)
+```
+
+## ACP
+
+Les échantillons sont représentés par des points colorés en fonction du mois.
+```{r}
+PCA_for_month = function(month) {
+  PC_data <- drop_na(META)
+  PC_data <- PC_data[PC_data$month %in% month, ]
+  
+  # Enlever colonnes avec une variance nulle
+  pca <- prcomp(PC_data[8:22][, which(apply(PC_data[8:22], 2, var) != 0)], scale = TRUE)
+  PC_data$month = as.factor(PC_data$month)
+  
+  a <- autoplot(pca, 
+                data = PC_data, 
+                colour = "month", 
+                size = 3, 
+                loadings = TRUE, 
+                loadings.label = TRUE, 
+                loadings.label.colour = "black")
+  a + scale_colour_manual(values = months_palette)
+}
+```
+
+```{r, fig.width=10, fig.height=10}
+PCA_for_month(unique(META$month)) # Numero de mois ou plusieurs mois avec c()
+```
+
+
+
+
+
+
+
+
+
+
+
+
