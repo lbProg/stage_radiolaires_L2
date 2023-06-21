@@ -1,11 +1,18 @@
+# Importation des librairies ----------
+
 library(dplyr)
 library(ggplot2)
 library(tidyr)
 library(ggfortify)
 
+
+# Importation des jeux de donnees ----------
+
 TAX <- read.csv("Data/TAX_pr2_Radiolaria_GoA.csv")
 META <- read.csv("Data/META_Radiolaria_GoA.csv")
 OTU <- read.csv("Data/OTU_Radiolaria_GoA.csv")
+
+source("palettes.R")
 
 
 # Verification de la correspondnce des tableaux entre eux ----------
@@ -60,22 +67,24 @@ OTU_norm <- cbind(OTU[1], OTU_norm)
 
 # Tableau d'abondance ----------
 
-abund <- cbind("class" = TAX$Class[which(OTU_norm$X == TAX$X)], OTU_norm[-1])
+abund <- cbind("order" = TAX$Order[which(OTU_norm$X == TAX$X)], OTU_norm[-1])
 abund <- gather(abund, "sample", "value", -1)
 
 abund <- abund %>%
-  group_by(sample, class) %>%
+  group_by(sample, order) %>%
   summarize(across(value, sum))
 
 abund$month = substr(abund$sample, 5, 6)
 
-ggplot(data = abund, aes(x = month, fill = class, y = value)) +
+ggplot(data = abund, aes(x = sample, fill = order, y = value)) +
+  facet_wrap(~month, scales="free") +
   geom_bar(stat = "identity") +
   theme(legend.key.size = unit(0.4, 'cm')) +
   theme(legend.text = element_text(size = 10)) +
   guides(fill = guide_legend(ncol = 2)) +
   scale_y_continuous(expand = c(0, 0)) +
-  scale_x_discrete(guide = guide_axis(angle = 80))
+  scale_x_discrete(guide = guide_axis(angle = 80)) +
+  scale_fill_manual(values = order_palette)
 
 
 # ACP ----------
@@ -88,7 +97,8 @@ PCA_for_month = function(month) {
   pca <- prcomp(PC_data[8:22][, which(apply(PC_data[8:22], 2, var) != 0)], scale = TRUE)
   PC_data$month = as.factor(PC_data$month)
   
-  autoplot(pca, data = PC_data, colour = "month", loadings = TRUE, loadings.label = TRUE, loadings.label.colour = "black")
+  a <- autoplot(pca, data = PC_data, colour = "month", size = 3, loadings = TRUE, loadings.label = TRUE, loadings.label.colour = "black")
+  a + scale_colour_manual(values = months_palette)
 }
 
 PCA_for_month(unique(META$month)) # Numero de mois ou plusieurs mois avec c()
