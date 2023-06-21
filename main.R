@@ -67,24 +67,41 @@ OTU_norm <- cbind(OTU[1], OTU_norm)
 
 # Tableau d'abondance ----------
 
-abund <- cbind("order" = TAX$Order[which(OTU_norm$X == TAX$X)], OTU_norm[-1])
-abund <- gather(abund, "sample", "value", -1)
+abund <- cbind("class" = TAX$Class[which(OTU_norm$X == TAX$X)],
+               "order" = TAX$Order[which(OTU_norm$X == TAX$X)],
+               OTU_norm[-1])
+abund <- select(abund, -contains("dcm"))
+abund <- gather(abund, "sample", "value", -c(1, 2))
 
 abund <- abund %>%
-  group_by(sample, order) %>%
+  group_by(sample, class, order) %>%
   summarize(across(value, sum))
 
-abund$month = substr(abund$sample, 5, 6)
+abund$month <- substr(abund$sample, 5, 6)
 
-ggplot(data = abund, aes(x = sample, fill = order, y = value)) +
-  facet_wrap(~month, scales="free") +
+
+# Stacked barplot
+
+ggplot(data = abund, aes(paste0(sample, "&", month), fill = order, y = value)) +
   geom_bar(stat = "identity") +
-  theme(legend.key.size = unit(0.4, 'cm')) +
-  theme(legend.text = element_text(size = 10)) +
+  guides(x = ggh4x::guide_axis_nested(delim = "&"), vjust = 1) +
   guides(fill = guide_legend(ncol = 2)) +
+  theme(legend.key.size = unit(0.4, 'cm'),
+        legend.text = element_text(size = 10),
+        axis.title.x = element_text(size = 8),
+        axis.text.x = element_text(angle = 80, hjust = 1)) +
   scale_y_continuous(expand = c(0, 0)) +
-  scale_x_discrete(guide = guide_axis(angle = 80)) +
   scale_fill_manual(values = order_palette)
+
+# Courbes d'abondance relative
+m <- abund[abund$order == "Spumellaria", ]$month
+
+ggplot(data = abund[abund$order == "Spumellaria", ], aes(x = sample, y = value, group = 1)) +
+  geom_line() +
+  geom_point() +
+  geom_rect(fill = hue_pal()(4)[m], xmin = -Inf, xmax = Inf,
+            ymin = -Inf,ymax = Inf, alpha = 0.1, color = "black") +
+  theme(axis.text.x = element_text(angle = 80, hjust = 1))
 
 
 # ACP ----------
@@ -101,4 +118,4 @@ PCA_for_month = function(month) {
   a + scale_colour_manual(values = months_palette)
 }
 
-PCA_for_month(unique(META$month)) # Numero de mois ou plusieurs mois avec c()
+PCA_for_month(c(5, 6, 8, 10)) # Numero de mois ou plusieurs mois avec c()
