@@ -154,6 +154,16 @@ ggplot(data = abund, aes(paste0(sample, "&", month), fill = order, y = value)) +
   scale_y_continuous(expand = c(0, 0)) +
   scale_fill_manual(values = order_palette)
 ```
+La précision taxonomique a été réduite en passant des familles aux ordres pour plus de lisibilité et afin de pouvoir regrouper les couleurs pour montrer les grands groupes ex Acanthaires).
+
+La composition des communautés de Radiolaires semble varier en fonction du mois de l'année.  
+<ul>
+  <li>Les Acanthaires sont présents tout au long de l'année mais sont particulièrement abondants (relativement aux autres ordres) entre avril et novembre. on voit un premier pic au milieu du graphe et un autre qui commence à droite.</li>
+  <li>Les Nassellaires ne semblent pas dépendre de la saison, ils sont faiblement présents tout au long de l'année.</li>
+  <li>Les groupes environnementaux sont surtout abondants en hiver entre novembre et mars-avril.</li>
+  <li>Les Spumellaires sont présents pendant toute l'année. Leur abondance varie fortement entre les mois.</li>
+</ul>
+
 
 ## Courbes d'abondance relative
 
@@ -172,9 +182,19 @@ ab_plots <- lapply(unique(abund$order), function(i) {
 })
 ```
 
-```{r, echo=FALSE, fig.width=10, fig.height=10}
+```{r, eval=FALSE}
 grid.arrange(grobs = ab_plots, ncol = 4)
 ```
+
+```{r, echo=FALSE, fig.retina=4}
+include_graphics("Images/abundance_plots.png")
+```
+
+On voit ici plus précisément les variations temporelles de chaque ordre.  
+Certains comme Acantharea_4, RAD-B_X et sans doute Acantharea_E (pas assez de données pour être sûr) montrent une forte saisonnalité, leurs pics d'abondance se font toujours aux même mois.  
+D'autres comme Acantharea_B et Radiolaria_XX présentent des pics d'abondance uniques qui ne se répètent pas entre les années.  
+Pour les ordres Acantharea_B, Acantharea_D, Acantharea_F, RAD-A_X et RAD-B_X, un pic d'abondance est observé pour les derniers mois (avril-mai).
+
 
 ## Courbes de paramètres physicochimiques
 
@@ -187,7 +207,8 @@ var_plots <- lapply(unique(colnames(metadata))[-c(1:7)], function(i) {
   ggplot(data = metadata, aes(x = sample_id, y = .data[[i]], group = 1)) +
     geom_line(aes(color = factor(month))) +
     geom_point(aes(color = factor(month))) +
-    theme(axis.text.x = element_blank()) +
+    theme(axis.text.x = element_blank(),
+          legend.position = "none") +
     ylab("value") +
     labs(color = "month") +
     ggtitle(i) +
@@ -195,9 +216,16 @@ var_plots <- lapply(unique(colnames(metadata))[-c(1:7)], function(i) {
 })
 ```
 
-```{r, echo=FALSE, fig.width=10, fig.height=10}
+```{r, eval=FALSE}
 grid.arrange(grobs = var_plots, ncol=4)
 ```
+
+```{r, echo=FALSE, fig.retina=4}
+include_graphics("Images/PC_plots.png")
+```
+
+Les variables temp, PO4, TIN, solar_radiation, wind_speed, PAR et UV montrent une saisonnalité marquée.  
+Les variables salinity, chl, phaeo, silica, TIN, SI_TIN, SI_P et TIN_P montrent toutes un pic particulièrement élevé dans les derniers mois (avril-mai) ce qui correspond aux pics d'abondance vus avant chez Acantharea_B, Acantharea_D, Acantharea_F, RAD-A_X et RAD-B_X.
 
 ## ACP
 
@@ -226,7 +254,11 @@ PCA_for_month = function(month) {
 PCA_for_month(unique(META$month)) # Numero de mois ou plusieurs mois avec c()
 ```
 
-
+L'ACP ne représente que 50 % de la variablilité des données, ce qui est assez peu.  
+Le gradient le plus fort sur PC1 est UV-salinity, et sur PC2 chl-temp.  
+Les variables PAR, solar_radiation, UV, wind_speed et air_temp sont fortement corrélées entre elles, comme les variables chl, TIN_P, TIN et phaeo.  
+Les mois d'hiver (novembre à mars) sont corrélées négativement au groupe UV etc. Au contraire, les mois d'été (mai à août) sont corrélée positivement à ce groupe.  
+De plus, certains points du mois d'avril sont fortement corrélés positivement au groupe chl etc.
 
 
 

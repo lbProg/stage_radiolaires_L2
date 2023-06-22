@@ -5,6 +5,7 @@ library(ggplot2)
 library(tidyr)
 library(ggfortify)
 library(gridExtra)
+library(vegan)
 
 
 # Importation des jeux de donnees ----------
@@ -98,14 +99,40 @@ ggplot(data = abund, aes(paste0(sample, "&", month), fill = order, y = value)) +
   scale_y_continuous(expand = c(0, 0)) +
   scale_fill_manual(values = order_palette)
 
+
+div <- cbind("order" = TAX$Order[which(OTU$X == TAX$X)],
+              OTU[-1])
+div <- select(div, -contains("dcm"))
+
+div <- div %>%
+  group_by(order) %>%
+  summarize_all(sum)
+
+div <- as.data.frame(div)
+
+rownames(div) <- div$order
+div <- div[-1]
+
+div <- data.frame(t(div))
+div <- cbind("H" = diversity(div, MARGIN = 1, index = "shannon"), div)
+div <- cbind("sample" = rownames(div), div)
+div <- cbind("date" = META[!grepl("dcm", fixed = TRUE, META$sample_id),]$date, div)
+div$date <- factor(div$date, levels = unique(div$date)) # Sinon ordre alphabetique nuul
+
+
+ggplot(data = div, aes(x = date, y = H)) +
+  geom_line(aes(group = 1)) +
+  theme(axis.text.x = element_text(size = 10, angle = 80, hjust = 1))
+
+
 # Courbes d'abondance relative
 
 ab_plots <- lapply(unique(abund$order), function(i) {
   ggplot(subset(abund, order == i), aes(x = sample, y = value, fill = month)) +
     geom_col() +
     guides(fill = guide_legend(ncol = 2)) +
-    theme(axis.text.x = element_blank()) +
-    ylab("relative abundance") +
+    theme(axis.text.x = element_blank(),
+          legend.position = "none") +
     ggtitle(i) +
     scale_fill_manual(values = months_palette)
 })
@@ -125,11 +152,14 @@ PlotAbundance("Acantharea_B")
 
 # Courbes de parametres physicochimiques ----------
 
-var_plots <- lapply(unique(colnames(META))[-c(1:7)], function(i) {
-  ggplot(data = META, aes(x = sample_id, y = .data[[i]], group = 1)) +
+metadata = drop_na(META)
+
+var_plots <- lapply(unique(colnames(metadata))[-c(1:7)], function(i) {
+  ggplot(data = metadata, aes(x = sample_id, y = .data[[i]], group = 1)) +
     geom_line(aes(color = factor(month))) +
     geom_point(aes(color = factor(month))) +
-    theme(axis.text.x = element_blank()) +
+    theme(axis.text.x = element_blank(),
+          legend.position = "none") +
     ylab("value") +
     labs(color = "month") +
     ggtitle(i) +
