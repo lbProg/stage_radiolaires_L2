@@ -7,6 +7,8 @@ library(ggfortify)
 library(gridExtra)
 library(vegan)
 library(ggcorrplot)
+library(tseries)
+library(ggh4x)
 
 
 # Importation des jeux de donnees ----------
@@ -17,6 +19,11 @@ OTU <- read.csv("Data/OTU_Radiolaria_GoA.csv")
 
 source("palettes.R")
 
+months_equi <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
+                          "month_str" = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+periods <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
+                      "period" = c("mixing_1", "mixing_1", "bloom", "bloom", "strat", "strat", "strat", "strat", "strat", "mixing_2", "mixing_2", "mixing_2"))
+META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
 
 # Verification de la correspondnce des tableaux entre eux ----------
 
@@ -74,6 +81,7 @@ abund <- cbind("class" = TAX$Class[which(OTU_norm$X == TAX$X)],
                "order" = TAX$Order[which(OTU_norm$X == TAX$X)],
                OTU_norm[-1])
 abund <- select(abund, -contains("dcm"))
+
 abund <- gather(abund, "sample", "value", -c(1, 2))
 
 abund <- abund %>%
@@ -83,7 +91,15 @@ abund <- abund %>%
 abund$month <- substr(abund$sample, 5, 6)
 abund$month[abund$month != 10] <- gsub("0", "", abund$month[abund$month != 10])
 abund$month <- factor(abund$month, levels = c("1", "2", "3", "4", "5", "6", "8", "10", "11", "12"))
+abund$date <- META_srf$date[match(abund$sample, META_srf$sample_id)]
+abund$date <- factor(abund$date, levels = unique(abund$date))
 
+#abund$date <- as.Date(abund$date, format = "%d/%m/%Y")
+
+abund$period <- paste(periods$period[match(abund$month, periods$month_id)], "_20", substr(abund$sample, 3, 4), sep = "")
+abund$period <- factor(abund$period, levels = c("mixing_2_2020", "mixing_1_2021", "bloom_2021", "strat_2021", "mixing_2_2021", "mixing_1_2022", "bloom_2022", "strat_2022"))
+
+abund$year <- paste("20", substr(abund$sample, 3, 4), sep = "")
 
 # Stacked barplot
 
@@ -142,12 +158,15 @@ grid.arrange(grobs = ab_plots, ncol=4)
 PlotAbundance = function(order) {
   ggplot(data = abund[abund$order == order, ], aes(x = sample, y = value, fill = month)) +
     geom_col() +
+    facet_nested(cols = vars(year, period), scales = "free") +
     theme(axis.text.x = element_text(size = 8, angle = 80, hjust = 1)) +
     ylab("relative abundance") +
+    ggtitle(order) +
     scale_fill_manual(values = months_palette)
+    #scale_x_date(breaks = date_breaks("months"), date_labels = "%b-%Y")
 }
 
-PlotAbundance("Acantharea_B")
+PlotAbundance("Spumellaria")
 
 
 # Courbes de parametres physicochimiques ----------
@@ -186,9 +205,7 @@ PCA_for_month = function(month) {
 PCA_for_month(c(5, 6, 8, 10)) # Numero de mois ou plusieurs mois avec c()
 
 
-
-
-META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
+# Correlogrammes
 
 cor_table <- cbind(div[4:19], META_srf[8:22])
 cor_table <- drop_na(cor_table)
@@ -204,6 +221,11 @@ for (var in colnames(cor_mat)) {
   }
 }
 
-ggcorrplot(cor_mat)
+ggcorrplot(cor_mat) # En fonction des periodes
 ggcorrplot(cor(cor_table[1:16]), hc.order = TRUE)
-ggcorrplot(cor(cor_table[17:31]), hc.order = TRUE)    
+ggcorrplot(cor(cor_table[17:31]), hc.order = TRUE)
+
+
+
+
+acf(cor_table[1])
