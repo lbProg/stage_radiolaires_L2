@@ -6,6 +6,7 @@ library(tidyr)
 library(ggfortify)
 library(gridExtra)
 library(vegan)
+library(ggcorrplot)
 
 
 # Importation des jeux de donnees ----------
@@ -124,8 +125,7 @@ ggplot(data = div, aes(x = date, y = H)) +
   geom_line(aes(group = 1)) +
   theme(axis.text.x = element_text(size = 10, angle = 80, hjust = 1))
 
-
-# Courbes d'abondance relative
+ # Courbes d'abondance relative
 
 ab_plots <- lapply(unique(abund$order), function(i) {
   ggplot(subset(abund, order == i), aes(x = sample, y = value, fill = month)) +
@@ -184,3 +184,26 @@ PCA_for_month = function(month) {
 }
 
 PCA_for_month(c(5, 6, 8, 10)) # Numero de mois ou plusieurs mois avec c()
+
+
+
+
+META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
+
+cor_table <- cbind(div[4:19], META_srf[8:22])
+cor_table <- drop_na(cor_table)
+
+cor_mat <- data.frame(matrix(NA, nrow = 16, ncol = 15))
+rownames(cor_mat) <- colnames(cor_table[1:16])
+colnames(cor_mat) <- colnames(cor_table[17:31])
+
+
+for (var in colnames(cor_mat)) {
+  for (order in rownames(cor_mat)) {
+    cor_mat[order, var] <- round(cor(cor_table[order], cor_table[var]), 2)
+  }
+}
+
+ggcorrplot(cor_mat)
+ggcorrplot(cor(cor_table[1:16]), hc.order = TRUE)
+ggcorrplot(cor(cor_table[17:31]), hc.order = TRUE)    
