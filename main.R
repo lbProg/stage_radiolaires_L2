@@ -22,7 +22,7 @@ source("palettes.R")
 months_equi <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
                           "month_str" = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
 periods <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
-                      "period" = c("mixing_1", "mixing_1", "bloom", "bloom", "strat", "strat", "strat", "strat", "strat", "mixing_2", "mixing_2", "mixing_2"))
+                      "period" = c("M_1", "M_1", "B", "B", "S", "S", "S", "S", "S", "M_2", "M_2", "M_2"))
 META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
 
 # Verification de la correspondnce des tableaux entre eux ----------
@@ -97,28 +97,30 @@ abund$date <- factor(abund$date, levels = unique(abund$date))
 #abund$date <- as.Date(abund$date, format = "%d/%m/%Y")
 
 abund$period <- paste(periods$period[match(abund$month, periods$month_id)], "_20", substr(abund$sample, 3, 4), sep = "")
-abund$period <- factor(abund$period, levels = c("mixing_2_2020", "mixing_1_2021", "bloom_2021", "strat_2021", "mixing_2_2021", "mixing_1_2022", "bloom_2022", "strat_2022"))
+abund$period <- factor(abund$period, levels = c("M_2_2020", "M_1_2021", "B_2021", "S_2021", "M_2_2021", "M_1_2022", "B_2022", "S_2022"))
 
 abund$year <- paste("20", substr(abund$sample, 3, 4), sep = "")
 
 # Stacked barplot
 
-ggplot(data = abund, aes(paste0(sample, "&", month), fill = order, y = value)) +
+ggplot(data = abund, aes(x = sample, fill = order, y = value)) +
   geom_bar(stat = "identity") +
-  guides(x = ggh4x::guide_axis_nested(delim = "&"), vjust = 1) +
-  guides(fill = guide_legend(ncol = 2)) +
+  facet_nested(cols = vars(year, period), scales = "free") +
+  #guides(x = ggh4x::guide_axis_nested(delim = "&"), vjust = 1) +
+  guides(fill = guide_legend(ncol = 1)) +
   theme(legend.key.size = unit(0.4, 'cm'),
         legend.text = element_text(size = 10),
         axis.title.x = element_text(size = 8),
         axis.text.x = element_text(size = 10, angle = 80, hjust = 1)) +
   xlab("sample") +
+  ylab("abundance") +
   ggtitle("Relative abundance of Radiolarian orders for each sampling date") +
   scale_y_continuous(expand = c(0, 0)) +
   scale_fill_manual(values = order_palette)
 
+# Divesite de Shannon et equitabilite de Pielou
 
-div <- cbind("order" = TAX$Order[which(OTU$X == TAX$X)],
-              OTU[-1])
+div <- cbind("order" = TAX$Order[which(OTU$X == TAX$X)], OTU[-1])
 div <- select(div, -contains("dcm"))
 
 div <- div %>%
@@ -131,24 +133,36 @@ rownames(div) <- div$order
 div <- div[-1]
 
 div <- data.frame(t(div))
-div <- cbind("H" = diversity(div, MARGIN = 1, index = "shannon"), div)
-div <- cbind("sample" = rownames(div), div)
+
+div <- cbind("Shannon" = diversity(div, MARGIN = 1, index = "shannon"), div)
+div <- cbind("Pielou" = div$Shannon / log(rowSums(div != 0)), div)
+
 div <- cbind("date" = META[!grepl("dcm", fixed = TRUE, META$sample_id),]$date, div)
+div <- cbind("sample" = rownames(div), div)
+
 div$date <- factor(div$date, levels = unique(div$date)) # Sinon ordre alphabetique nuul
 
 
-ggplot(data = div, aes(x = date, y = H)) +
-  geom_line(aes(group = 1)) +
-  theme(axis.text.x = element_text(size = 10, angle = 80, hjust = 1))
+ggplot(data = div, aes(x = date)) +
+  geom_line(aes(y = Shannon, group = 1), colour = "red") +
+  geom_line(aes(y = 2*Pielou, group = 1), colour = "green") +
+  scale_y_continuous(name = "Shannon diversity", 
+                     sec.axis = sec_axis(trans = ~./2, name = "Pielou evenness", breaks = seq(0, 1, 0.25))) +
+  theme(axis.text.x = element_text(size = 10, angle = 80, hjust = 1),
+        axis.title.y = element_text(color = "red"),
+        axis.title.y.right = element_text(color = "green"))
 
- # Courbes d'abondance relative
+# Courbes d'abondance relative
 
 ab_plots <- lapply(unique(abund$order), function(i) {
   ggplot(subset(abund, order == i), aes(x = sample, y = value, fill = month)) +
     geom_col() +
+    facet_nested(cols = vars(year, period), scales = "free") +
     guides(fill = guide_legend(ncol = 2)) +
     theme(axis.text.x = element_blank(),
-          legend.position = "none") +
+          legend.position = "none",
+          panel.spacing = unit(0.1,'lines'),
+          strip.text.x = element_text(size = 8)) +
     ggtitle(i) +
     scale_fill_manual(values = months_palette)
 })
@@ -172,11 +186,15 @@ PlotAbundance("Spumellaria")
 # Courbes de parametres physicochimiques ----------
 
 metadata = drop_na(META)
+metadata$period <- paste(periods$period[match(metadata$month, periods$month_id)], "_20", substr(metadata$sample_id, 3, 4), sep = "")
+metadata$period <- factor(metadata$period, levels = c("M_2_2020", "M_1_2021", "B_2021", "S_2021", "M_2_2021", "M_1_2022", "B_2022", "S_2022"))
+
 
 var_plots <- lapply(unique(colnames(metadata))[-c(1:7)], function(i) {
   ggplot(data = metadata, aes(x = sample_id, y = .data[[i]], group = 1)) +
     geom_line(aes(color = factor(month))) +
     geom_point(aes(color = factor(month))) +
+    facet_nested(cols = vars(year, period), scales = "free") +
     theme(axis.text.x = element_blank(),
           legend.position = "none") +
     ylab("value") +
@@ -207,7 +225,7 @@ PCA_for_month(c(5, 6, 8, 10)) # Numero de mois ou plusieurs mois avec c()
 
 # Correlogrammes
 
-cor_table <- cbind(div[4:19], META_srf[8:22])
+cor_table <- cbind(div[5:20], META_srf[8:22])
 cor_table <- drop_na(cor_table)
 
 cor_mat <- data.frame(matrix(NA, nrow = 16, ncol = 15))
@@ -227,5 +245,14 @@ ggcorrplot(cor(cor_table[17:31]), hc.order = TRUE)
 
 
 
+autocorrplots <- lapply(colnames(cor_table[1:16]), function(i) {
+  a <- acf(cor_table[[i]])
+  b <- with(a, data.frame(lag, acf))
+  
+  ggplot(data = b, mapping = aes(x = lag, y = acf)) +
+    geom_hline(aes(yintercept = 0)) +
+    geom_segment(mapping = aes(xend = lag, yend = 0)) +
+    ggtitle(i)
+})
 
-acf(cor_table[1])
+grid.arrange(grobs = autocorrplots, ncol = 4)
