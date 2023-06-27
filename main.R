@@ -11,6 +11,24 @@ library(tseries)
 library(ggh4x)
 
 
+# Fonctions utiles par la suite ----------
+
+NumberOf = function(class) {
+  # Returns the number of different families present in a Radiolarian class
+  return(length(unique(TAX$Family[TAX$Class == class])))
+}
+
+GetPeriod = function(samples) {
+  # Generates a period column assigning a period to each sample of the dataframe
+  m <- as.numeric(substr(samples, 5, 6))
+  p <- paste(periods$period[match(m, periods$month_id)], "_20", substr(samples, 3, 4), sep = "")
+  
+  p <- factor(p, levels = c("M_2_2020", "M_1_2021", "B_2021", "S_2021", "M_2_2021", "M_1_2022", "B_2022", "S_2022"))
+  
+  return(p)
+}
+
+
 # Importation des jeux de donnees ----------
 
 TAX <- read.csv("Data/TAX_pr2_Radiolaria_GoA.csv")
@@ -24,6 +42,7 @@ months_equi <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
 periods <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
                       "period" = c("M_1", "M_1", "B", "B", "S", "S", "S", "S", "S", "M_2", "M_2", "M_2"))
 META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
+
 
 # Verification de la correspondnce des tableaux entre eux ----------
 
@@ -48,9 +67,7 @@ which(META_match[c(-1, -6)] == FALSE) # Les 2 réplicats (a/b) sont exactement i
 
 # Description des jeux de données ----------
 
-NumberOf = function(class) {
-  return(length(unique(TAX$Family[TAX$Class == class])))
-}
+
 
 summ <- data.frame("nb_OTUs" = nrow(OTU),
                   "max_abund" = max(OTU[-1]),
@@ -94,10 +111,7 @@ abund$month <- factor(abund$month, levels = c("1", "2", "3", "4", "5", "6", "8",
 abund$date <- META_srf$date[match(abund$sample, META_srf$sample_id)]
 abund$date <- factor(abund$date, levels = unique(abund$date))
 
-#abund$date <- as.Date(abund$date, format = "%d/%m/%Y")
-
-abund$period <- paste(periods$period[match(abund$month, periods$month_id)], "_20", substr(abund$sample, 3, 4), sep = "")
-abund$period <- factor(abund$period, levels = c("M_2_2020", "M_1_2021", "B_2021", "S_2021", "M_2_2021", "M_1_2022", "B_2022", "S_2022"))
+abund$period <- GetPeriod(abund$sample)
 
 abund$year <- paste("20", substr(abund$sample, 3, 4), sep = "")
 
@@ -140,12 +154,16 @@ div <- cbind("Pielou" = div$Shannon / log(rowSums(div != 0)), div)
 div <- cbind("date" = META[!grepl("dcm", fixed = TRUE, META$sample_id),]$date, div)
 div <- cbind("sample" = rownames(div), div)
 
+div$period <- GetPeriod(div$sample)
+div$year <- paste("20", substr(div$sample, 3, 4), sep = "")
+
 div$date <- factor(div$date, levels = unique(div$date)) # Sinon ordre alphabetique nuul
 
 
 ggplot(data = div, aes(x = date)) +
   geom_line(aes(y = Shannon, group = 1), colour = "red") +
   geom_line(aes(y = 2*Pielou, group = 1), colour = "green") +
+  facet_nested(cols = vars(year, period), scales = "free") +
   scale_y_continuous(name = "Shannon diversity", 
                      sec.axis = sec_axis(trans = ~./2, name = "Pielou evenness", breaks = seq(0, 1, 0.25))) +
   theme(axis.text.x = element_text(size = 10, angle = 80, hjust = 1),
@@ -155,72 +173,64 @@ ggplot(data = div, aes(x = date)) +
 # Courbes d'abondance relative
 
 ab_plots <- lapply(unique(abund$order), function(i) {
-  ggplot(subset(abund, order == i), aes(x = sample, y = value, fill = month)) +
+  ggplot(subset(abund, order == i), aes(x = sample, y = value)) +
     geom_col() +
     facet_nested(cols = vars(year, period), scales = "free") +
     guides(fill = guide_legend(ncol = 2)) +
     theme(axis.text.x = element_blank(),
+          axis.text.y = element_text(size = 7),
+          axis.title.y = element_blank(),
           legend.position = "none",
           panel.spacing = unit(0.1,'lines'),
-          strip.text.x = element_text(size = 8)) +
-    ggtitle(i) +
-    scale_fill_manual(values = months_palette)
+          panel.grid.major.x = element_blank(),
+          strip.text.x = element_text(size = 7)) +
+    scale_y_continuous(limits = c(0, 1), breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+    ggtitle(i)
 })
 
-grid.arrange(grobs = ab_plots, ncol=4)
-
-PlotAbundance = function(order) {
-  ggplot(data = abund[abund$order == order, ], aes(x = sample, y = value, fill = month)) +
-    geom_col() +
-    facet_nested(cols = vars(year, period), scales = "free") +
-    theme(axis.text.x = element_text(size = 8, angle = 80, hjust = 1)) +
-    ylab("relative abundance") +
-    ggtitle(order) +
-    scale_fill_manual(values = months_palette)
-    #scale_x_date(breaks = date_breaks("months"), date_labels = "%b-%Y")
-}
-
-PlotAbundance("Spumellaria")
+grid.arrange(grobs = ab_plots, ncol = 4)
 
 
 # Courbes de parametres physicochimiques ----------
 
 metadata = drop_na(META)
-metadata$period <- paste(periods$period[match(metadata$month, periods$month_id)], "_20", substr(metadata$sample_id, 3, 4), sep = "")
-metadata$period <- factor(metadata$period, levels = c("M_2_2020", "M_1_2021", "B_2021", "S_2021", "M_2_2021", "M_1_2022", "B_2022", "S_2022"))
+metadata <- subset(metadata, sample == "a")
+metadata$year <- paste("20", metadata$year, sep = "")
+metadata <- cbind(period = GetPeriod(metadata$sample_id), metadata)
 
-
-var_plots <- lapply(unique(colnames(metadata))[-c(1:7)], function(i) {
-  ggplot(data = metadata, aes(x = sample_id, y = .data[[i]], group = 1)) +
-    geom_line(aes(color = factor(month))) +
-    geom_point(aes(color = factor(month))) +
+var_plots <- lapply(unique(colnames(metadata))[-c(1:8)], function(i) {
+  ggplot(data = metadata, aes(x = date, y = .data[[i]], group = depth, color = depth)) +
+    geom_line() +
+    geom_point() +
     facet_nested(cols = vars(year, period), scales = "free") +
     theme(axis.text.x = element_blank(),
-          legend.position = "none") +
-    ylab("value") +
-    labs(color = "month") +
-    ggtitle(i) +
-    scale_color_manual(values = months_palette)
+          axis.text.y = element_text(size = 7),
+          axis.title.y = element_blank(),
+          legend.position = "none",
+          panel.spacing = unit(0.1,'lines'),
+          panel.grid.major.x = element_blank(),
+          strip.text.x = element_text(size = 7)) +
+    scale_color_manual(values = c("#27a123", "black")) +
+    ggtitle(i)
 })
 
-grid.arrange(grobs = var_plots, ncol=4)
-
+suppressMessages(grid.arrange(grobs = var_plots, ncol = 4)) # bof bof
 
 # ACP ----------
 
-PCA_for_month = function(month) {
-  PC_data <- drop_na(META)
-  PC_data <- PC_data[PC_data$month %in% month, ]
-  
+PC_data <- drop_na(META)
+PC_data <- cbind(period = GetPeriod(PC_data$sample_id), PC_data)
+
+PCA_for_period = function(p) {
+  data = subset(PC_data, period %in% p)
   # Enlever colonnes avec une variance nulle
-  pca <- prcomp(PC_data[8:22][, which(apply(PC_data[8:22], 2, var) != 0)], scale = TRUE)
-  PC_data$month = as.factor(PC_data$month)
+  pca <- prcomp(data[9:23][, which(apply(data[9:23], 2, var) != 0)], scale = TRUE)
   
-  a <- autoplot(pca, data = PC_data, colour = "month", size = 3, loadings = TRUE, loadings.label = TRUE, loadings.label.colour = "black")
-  a + scale_colour_manual(values = months_palette)
+  a <- autoplot(pca, data = data, size = 3, loadings = TRUE, loadings.label = TRUE, loadings.label.colour = "black")
+  a + ggtitle(paste(p, collapse = " - "))
 }
 
-PCA_for_month(c(5, 6, 8, 10)) # Numero de mois ou plusieurs mois avec c()
+PCA_for_period(c("B_2021", "B_2022")) # periode
 
 
 # Correlogrammes
