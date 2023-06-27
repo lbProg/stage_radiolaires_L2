@@ -9,6 +9,7 @@ library(vegan)
 library(ggcorrplot)
 library(tseries)
 library(ggh4x)
+library(ggpubr)
 
 
 # Fonctions utiles par la suite ----------
@@ -41,6 +42,11 @@ months_equi <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
                           "month_str" = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
 periods <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
                       "period" = c("M_1", "M_1", "B", "B", "S", "S", "S", "S", "S", "M_2", "M_2", "M_2"))
+
+period_labs <- c("M", "M", "B", "S", "M", "M", "B", "S")
+names(period_labs) <- c("M_2_2020", "M_1_2021", "B_2021", "S_2021",
+                        "M_2_2021", "M_1_2022", "B_2022", "S_2022")
+
 META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
 
 
@@ -66,8 +72,6 @@ which(META_match[c(-1, -6)] == FALSE) # Les 2 réplicats (a/b) sont exactement i
 
 
 # Description des jeux de données ----------
-
-
 
 summ <- data.frame("nb_OTUs" = nrow(OTU),
                   "max_abund" = max(OTU[-1]),
@@ -108,6 +112,7 @@ abund <- abund %>%
 abund$month <- substr(abund$sample, 5, 6)
 abund$month[abund$month != 10] <- gsub("0", "", abund$month[abund$month != 10])
 abund$month <- factor(abund$month, levels = c("1", "2", "3", "4", "5", "6", "8", "10", "11", "12"))
+
 abund$date <- META_srf$date[match(abund$sample, META_srf$sample_id)]
 abund$date <- factor(abund$date, levels = unique(abund$date))
 
@@ -119,7 +124,7 @@ abund$year <- paste("20", substr(abund$sample, 3, 4), sep = "")
 
 ggplot(data = abund, aes(x = sample, fill = order, y = value)) +
   geom_bar(stat = "identity") +
-  facet_nested(cols = vars(year, period), scales = "free") +
+  facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
   #guides(x = ggh4x::guide_axis_nested(delim = "&"), vjust = 1) +
   guides(fill = guide_legend(ncol = 1)) +
   theme(legend.key.size = unit(0.4, 'cm'),
@@ -137,6 +142,8 @@ ggplot(data = abund, aes(x = sample, fill = order, y = value)) +
 div <- cbind("order" = TAX$Order[which(OTU$X == TAX$X)], OTU[-1])
 div <- select(div, -contains("dcm"))
 
+div
+
 div <- div %>%
   group_by(order) %>%
   summarize_all(sum)
@@ -151,7 +158,7 @@ div <- data.frame(t(div))
 div <- cbind("Shannon" = diversity(div, MARGIN = 1, index = "shannon"), div)
 div <- cbind("Pielou" = div$Shannon / log(rowSums(div != 0)), div)
 
-div <- cbind("date" = META[!grepl("dcm", fixed = TRUE, META$sample_id),]$date, div)
+div <- cbind("date" = META_srf$date, div)
 div <- cbind("sample" = rownames(div), div)
 
 div$period <- GetPeriod(div$sample)
@@ -163,7 +170,7 @@ div$date <- factor(div$date, levels = unique(div$date)) # Sinon ordre alphabetiq
 ggplot(data = div, aes(x = date)) +
   geom_line(aes(y = Shannon, group = 1), colour = "red") +
   geom_line(aes(y = 2*Pielou, group = 1), colour = "green") +
-  facet_nested(cols = vars(year, period), scales = "free") +
+  facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
   scale_y_continuous(name = "Shannon diversity", 
                      sec.axis = sec_axis(trans = ~./2, name = "Pielou evenness", breaks = seq(0, 1, 0.25))) +
   theme(axis.text.x = element_text(size = 10, angle = 80, hjust = 1),
@@ -175,7 +182,7 @@ ggplot(data = div, aes(x = date)) +
 ab_plots <- lapply(unique(abund$order), function(i) {
   ggplot(subset(abund, order == i), aes(x = sample, y = value)) +
     geom_col() +
-    facet_nested(cols = vars(year, period), scales = "free") +
+    facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
     guides(fill = guide_legend(ncol = 2)) +
     theme(axis.text.x = element_blank(),
           axis.text.y = element_text(size = 7),
@@ -202,7 +209,7 @@ var_plots <- lapply(unique(colnames(metadata))[-c(1:8)], function(i) {
   ggplot(data = metadata, aes(x = date, y = .data[[i]], group = depth, color = depth)) +
     geom_line() +
     geom_point() +
-    facet_nested(cols = vars(year, period), scales = "free") +
+    facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
     theme(axis.text.x = element_blank(),
           axis.text.y = element_text(size = 7),
           axis.title.y = element_blank(),
@@ -210,7 +217,7 @@ var_plots <- lapply(unique(colnames(metadata))[-c(1:8)], function(i) {
           panel.spacing = unit(0.1,'lines'),
           panel.grid.major.x = element_blank(),
           strip.text.x = element_text(size = 7)) +
-    scale_color_manual(values = c("#27a123", "black")) +
+    scale_color_manual(values = depth_palette) +
     ggtitle(i)
 })
 
@@ -221,17 +228,22 @@ suppressMessages(grid.arrange(grobs = var_plots, ncol = 4)) # bof bof
 PC_data <- drop_na(META)
 PC_data <- cbind(period = GetPeriod(PC_data$sample_id), PC_data)
 
-PCA_for_period = function(p) {
+PCA_for_period = function(p, title = paste(p, collapse = " - ")) {
   data = subset(PC_data, period %in% p)
   # Enlever colonnes avec une variance nulle
   pca <- prcomp(data[9:23][, which(apply(data[9:23], 2, var) != 0)], scale = TRUE)
   
-  a <- autoplot(pca, data = data, size = 3, loadings = TRUE, loadings.label = TRUE, loadings.label.colour = "black")
-  a + ggtitle(paste(p, collapse = " - "))
+  a <- autoplot(pca, data = data, size = 3, colour = "depth", loadings = TRUE, loadings.label = TRUE, loadings.label.colour = "black")
+  return(a + ggtitle(title) + scale_color_manual(values = depth_palette))
 }
 
-PCA_for_period(c("B_2021", "B_2022")) # periode
+mixing_PCA <- PCA_for_period(c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"), "mixing")
+bloom_PCA <- PCA_for_period(c("B_2021", "B_2022"), "bloom")
+strat_PCA <- PCA_for_period(c("S_2021", "S_2022"), "stratification")
+all_PCA <- PCA_for_period(unique(PC_data$period), "all periods")
 
+
+ggarrange(mixing_PCA, bloom_PCA, strat_PCA, all_PCA, ncol = 2, nrow = 2)
 
 # Correlogrammes
 

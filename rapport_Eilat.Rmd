@@ -18,15 +18,70 @@ library(ggplot2)
 library(tidyr)
 library(ggfortify)
 library(gridExtra)
+library(vegan)
+library(ggcorrplot)
+library(tseries)
+library(ggh4x)
+library(ggpubr)
 ```
 
-## importation des jeux de données
+## Définition de fonctions
+
+```{r}
+NumberOf = function(class) {
+  # Returns the number of different families present in a Radiolarian class
+  
+  return(length(unique(TAX$Family[TAX$Class == class])))
+}
+```
+
+```{r}
+GetPeriod = function(samples) {
+  # Associates a period to each sample
+  
+  m <- as.numeric(substr(samples, 5, 6))
+  p <- paste(periods$period[match(m, periods$month_id)], "_20", substr(samples, 3, 4), sep = "")
+  p <- factor(p, levels = c("M_2_2020", "M_1_2021", "B_2021", "S_2021", 
+                            "M_2_2021", "M_1_2022", "B_2022", "S_2022"))
+  
+  return(p)
+}
+
+```
+
+
+## Importation des jeux de données
 
 ```{r}
 TAX <- read.csv("Data/TAX_pr2_Radiolaria_GoA.csv")
 META <- read.csv("Data/META_Radiolaria_GoA.csv")
 OTU <- read.csv("Data/OTU_Radiolaria_GoA.csv")
 ```
+
+```{r}
+months_equi <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
+                          "month_str" = c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+periods <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
+                      "period" = c("M_1", "M_1", "B", "B", "S", "S", "S", "S", "S", "M_2", "M_2", "M_2"))
+
+period_labs <- c("M", "M", "B", "S", "M", "M", "B", "S")
+names(period_labs) <- c("M_2_2020", "M_1_2021", "B_2021", "S_2021",
+                        "M_2_2021", "M_1_2022", "B_2022", "S_2022")
+
+META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
+```
+
+Le tableau `periods` :
+<ul>
+  <li>M : période de mixing (octobre-février)</li>
+  <li>B : période de bloom (mars-avril)</li>
+  <li>S : période de stratification (mai-septembre)</li>
+</ul>
+```{r, echo=FALSE}
+kable(t(periods))
+```
+
 
 ## Création de palettes de couleur
 
@@ -42,23 +97,13 @@ order_palette <- c(colorRampPalette(brewer.pal(9, "Blues"))(10),
                    colorRampPalette(brewer.pal(3, "Oranges"))(4),
                    "black")
 
-names(order_palette) <- c("Acantharea_1",
-                          "Acantharea_2",
-                          "Acantharea_3",
-                          "Acantharea_4",
-                          "Acantharea_A",
-                          "Acantharea_B",
-                          "Acantharea_C",
-                          "Acantharea_D",
-                          "Acantharea_E",
-                          "Acantharea_F",
-                          "Nassellaria",
-                          "RAD-A_X",
-                          "RAD-B_X",
-                          "RAD-C_X",
-                          "Radiolaria_XX",
-                          "Spumellaria")
+names(order_palette) <- c("Acantharea_1", "Acantharea_2", "Acantharea_3", "Acantharea_4",
+                          "Acantharea_A", "Acantharea_B", "Acantharea_C", "Acantharea_D",
+                          "Acantharea_E", "Acantharea_F", "Nassellaria", "RAD-A_X",
+                          "RAD-B_X", "RAD-C_X", "Radiolaria_XX", "Spumellaria")
 
+depth_palette <- c("#07b1f2", "#54d326")
+names(depth_palette) <- c("surface", "dcm")
 
 months_palette <- rainbow(10)
 names(months_palette) <- c("1", "2", "3", "4", "5", "6", "8", "10", "11", "12")
@@ -68,10 +113,6 @@ names(months_palette) <- c("1", "2", "3", "4", "5", "6", "8", "10", "11", "12")
 ## Description des jeux de données
 
 ```{r}
-NumberOf = function(class) {
-  return(length(unique(TAX$Family[TAX$Class == class])))
-}
-
 summ <- data.frame("nb_OTUs" = nrow(OTU),
                   "max_abund" = max(OTU[-1]),
                   "mean_abund" = mean(as.matrix(OTU[-1])),
@@ -136,34 +177,119 @@ abund$month[abund$month != 10] <- gsub("0", "", abund$month[abund$month != 10])
 abund$month <- factor(abund$month, levels = c("1", "2", "3", "4", "5", "6", "8", "10", "11", "12"))
 ```
 
+Une colonne `date` est rajoutée qui servira d'abscisse sur les graphiques.
+```{r}
+abund$date <- META_srf$date[match(abund$sample, META_srf$sample_id)]
+abund$date <- factor(abund$date, levels = unique(abund$date))
+```
+
+La période et l'année sont rajoutées au tableau.
+```{r}
+abund$period <- GetPeriod(abund$sample)
+abund$year <- paste("20", substr(abund$sample, 3, 4), sep = "")
+```
+
+```{r, echo=FALSE}
+kable(head(abund))
+```
+
+
 ## Barplot d'abondance relative
 
-En x l'identifiant de chaque échantillon, avec un regroupement par mois pour plus de lisibilité. Les couleurs sont similaires pour chaque groupe (les acanthaires en bleu et les groupes environnementaux en orange).
+L'abondance relative de tous les ordres de Radiolaires est représentée pour chaque échantillon. Les couleurs sont similaires pour chaque groupe (les acanthaires en bleu et les groupes environnementaux en orange par exemple). Chaque échantillon correspond à une année et une période représentées en haut du graphique.
 
 ```{r, fig.width=12, fig.height=8}
-ggplot(data = abund, aes(paste0(sample, "&", month), fill = order, y = value)) +
+ggplot(data = abund, aes(x = sample, fill = order, y = value)) +
   geom_bar(stat = "identity") +
-  guides(x = ggh4x::guide_axis_nested(delim = "&"), vjust = 1) +
-  guides(fill = guide_legend(ncol = 2)) +
+  facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
+  #guides(x = ggh4x::guide_axis_nested(delim = "&"), vjust = 1) +
+  guides(fill = guide_legend(ncol = 1)) +
   theme(legend.key.size = unit(0.4, 'cm'),
         legend.text = element_text(size = 10),
         axis.title.x = element_text(size = 8),
         axis.text.x = element_text(size = 10, angle = 80, hjust = 1)) +
   xlab("sample") +
+  ylab("abundance") +
   ggtitle("Relative abundance of Radiolarian orders for each sampling date") +
   scale_y_continuous(expand = c(0, 0)) +
   scale_fill_manual(values = order_palette)
 ```
-La précision taxonomique a été réduite en passant des familles aux ordres pour plus de lisibilité et afin de pouvoir regrouper les couleurs pour montrer les grands groupes ex Acanthaires).
+La précision taxonomique a été réduite en passant des familles aux ordres pour plus de lisibilité et afin de pouvoir regrouper les couleurs pour montrer les grands groupes (ex Acanthaires).
 
-La composition des communautés de Radiolaires semble varier en fonction du mois de l'année.  
+La composition des communautés de Radiolaires semble varier en fonction de la période.
 <ul>
-  <li>Les Acanthaires sont présents tout au long de l'année mais sont particulièrement abondants (relativement aux autres ordres) entre avril et novembre. on voit un premier pic au milieu du graphe et un autre qui commence à droite.</li>
-  <li>Les Nassellaires ne semblent pas dépendre de la saison, ils sont faiblement présents tout au long de l'année.</li>
-  <li>Les groupes environnementaux sont surtout abondants en hiver entre novembre et mars-avril.</li>
-  <li>Les Spumellaires sont présents pendant toute l'année. Leur abondance varie fortement entre les mois.</li>
+  <li>La période de mixing commence avec une répartition équitable d'Acanthaires, de groupes environnementaux et de Spumellaires, puis est par la suite principalement composée de groupes environnementaux et de Spumellaires.</li>
+  <li>La période de bloom est différente entre 2021 et 2022 : en 2021, les groupes les plus abondants sont les Acanthaires et les Spumellaires, alors qu'en 2022 ce qont les groupes environnementaux et les Acanthaires. Dans les deux cas, on observe que tous les groupes sont présents au mois à un moment.</li>
+  <li>La période de stratification montre une forte abondance des Acanthaires ainsi que la présence de Spumellaires.</li>
 </ul>
 
+
+## Diversité de Shannon et indice de Pielou
+Le tableau `div`va permettre de calculer et de représenter des indices de diversité écologique en fonction des échantillons.
+
+L'abondance de chaque OTU dans chaque échantillon est résumée à l'abondance de chaque ordre dans chaque échantillon.
+```{r}
+div <- cbind("order" = TAX$Order[which(OTU$X == TAX$X)], OTU[-1])
+div <- select(div, -contains("dcm"))
+
+div <- div %>%
+  group_by(order) %>%
+  summarize_all(sum)
+```
+
+```{r echo=FALSE}
+kable(head(div[1:8]))
+```
+
+```{r}
+div <- as.data.frame(div)
+rownames(div) <- div$order
+div <- div[-1]
+```
+
+Le tableau est renversé afin d'avoir les échantillons en ligne et les ordres en colonnes.
+```{r}
+div <- data.frame(t(div))
+```
+
+```{r, echo=FALSE}
+kable(head(div[1:8]))
+```
+
+Une colonne contenant le diversité de Shannon pour chaque échantillon est rajoutée, puis l'équitabilité de Pielou est calculée à partir de Shannon.
+```{r}
+div <- cbind("Shannon" = diversity(div, MARGIN = 1, index = "shannon"), div)
+div <- cbind("Pielou" = div$Shannon / log(rowSums(div != 0)), div)
+```
+
+Les colonnes `date`et `sample` sont rajoutées ce qui permet d'associer une période à chaque échantillon.
+```{r}
+div <- cbind("date" = META_srf$date, div)
+div <- cbind("sample" = rownames(div), div)
+
+div$period <- GetPeriod(div$sample)
+div$year <- paste("20", substr(div$sample, 3, 4), sep = "")
+
+div$date <- factor(div$date, levels = unique(div$date))
+```
+
+```{r, echo=FALSE}
+kable(head(div[-c(7:19)]))
+```
+
+```{r, fig.width=10}
+ggplot(data = div, aes(x = date)) +
+  geom_line(aes(y = Shannon, group = 1), colour = "red") +
+  geom_line(aes(y = 2*Pielou, group = 1), colour = "green") +
+  facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
+  scale_y_continuous(name = "Shannon diversity", 
+                     sec.axis = sec_axis(trans = ~./2, name = "Pielou evenness", breaks = seq(0, 1, 0.25))) +
+  theme(axis.text.x = element_text(size = 10, angle = 80, hjust = 1),
+        axis.title.y = element_text(color = "red"),
+        axis.title.y.right = element_text(color = "green"))
+```
+
+L'indice d'équitabilité de Pielou est très similaire dans ses variations à l'indice de Shannon, mais avec des valeurs deux fois moins élevées. Dans les deux cas, les valeurs varient fortement pendant les périodes de bloom, et sont relativement stables pendant la stratification. La période de mixing 2020-2021 montre une diversité plus faible qu'en 2021-2022.
 
 ## Courbes d'abondance relative
 
@@ -171,29 +297,30 @@ L'abondance relative de chaque ordre est représentée individuellement. La coul
 
 ```{r}
 ab_plots <- lapply(unique(abund$order), function(i) {
-  ggplot(subset(abund, order == i), aes(x = sample, y = value, fill = month)) +
+  ggplot(subset(abund, order == i), aes(x = sample, y = value)) +
     geom_col() +
+    facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
     guides(fill = guide_legend(ncol = 2)) +
     theme(axis.text.x = element_blank(),
-          legend.position = "none") +
-    ylab("relative abundance") +
-    ggtitle(i) +
-    scale_fill_manual(values = months_palette)
+          axis.text.y = element_text(size = 7),
+          axis.title.y = element_blank(),
+          legend.position = "none",
+          panel.spacing = unit(0.1,'lines'),
+          panel.grid.major.x = element_blank(),
+          strip.text.x = element_text(size = 7)) +
+    scale_y_continuous(limits = c(0, 1), breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+    ggtitle(i)
 })
 ```
 
-```{r, eval=FALSE}
+```{r, fig.width=10, fig.height=8}
 grid.arrange(grobs = ab_plots, ncol = 4)
 ```
 
-```{r, echo=FALSE, fig.retina=4}
-include_graphics("Images/abundance_plots.png")
-```
-
-On voit ici plus précisément les variations temporelles de chaque ordre.  
-Certains comme Acantharea_4, RAD-B_X et sans doute Acantharea_E (pas assez de données pour être sûr) montrent une forte saisonnalité, leurs pics d'abondance se font toujours aux même mois.  
-D'autres comme Acantharea_B et Radiolaria_XX présentent des pics d'abondance uniques qui ne se répètent pas entre les années.  
-Pour les ordres Acantharea_B, Acantharea_D, Acantharea_F, RAD-A_X et RAD-B_X, un pic d'abondance est observé pour les derniers mois (avril-mai).
+Les variations temporelles de chaque ordre sont représentées.  
+Certains comme Acantharea_4, RAD-B_X et sans doute Acantharea_E (pas assez de données pour être sûr) montrent une forte saisonnalité, leurs pics d'abondance se font toujours aux mêmes périodes.  
+D'autres comme Acantharea_B et Radiolaria_XX présentent des pics d'abondance uniques qui ne se répètent pas entre les périodes sur plusieurs années.  
+Pour les ordres Acantharea_B, Acantharea_D, Acantharea_F, RAD-A_X et RAD-B_X, un pic d'abondance est observé pour la période de bloom 2022.
 
 
 ## Courbes de paramètres physicochimiques
@@ -202,67 +329,114 @@ L'évolution de chaque paramètre est représentée de la même manière que l'a
 
 ```{r}
 metadata = drop_na(META)
+metadata <- subset(metadata, sample == "a")
+metadata$year <- paste("20", metadata$year, sep = "")
+metadata <- cbind(period = GetPeriod(metadata$sample_id), metadata)
+```
 
-var_plots <- lapply(unique(colnames(metadata))[-c(1:7)], function(i) {
-  ggplot(data = metadata, aes(x = sample_id, y = .data[[i]], group = 1)) +
-    geom_line(aes(color = factor(month))) +
-    geom_point(aes(color = factor(month))) +
+```{r}
+var_plots <- lapply(unique(colnames(metadata))[-c(1:8)], function(i) {
+  ggplot(data = metadata, aes(x = date, y = .data[[i]], group = depth, color = depth)) +
+    geom_line() +
+    geom_point() +
+    facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
     theme(axis.text.x = element_blank(),
-          legend.position = "none") +
-    ylab("value") +
-    labs(color = "month") +
-    ggtitle(i) +
-    scale_color_manual(values = months_palette)
+          axis.text.y = element_text(size = 7),
+          axis.title.y = element_blank(),
+          legend.position = "none",
+          panel.spacing = unit(0.1,'lines'),
+          panel.grid.major.x = element_blank(),
+          strip.text.x = element_text(size = 7)) +
+    scale_color_manual(values = depth_palette) +
+    ggtitle(i)
 })
 ```
 
-```{r, eval=FALSE}
-grid.arrange(grobs = var_plots, ncol=4)
+```{r, include=FALSE}
+grid.arrange(grobs = var_plots, ncol = 4)
 ```
 
-```{r, echo=FALSE, fig.retina=4}
-include_graphics("Images/PC_plots.png")
+```{r, echo=FALSE, fig.width=10, fig.height=8}
+suppressMessages(grid.arrange(grobs = var_plots, ncol = 4))
 ```
 
 Les variables temp, PO4, TIN, solar_radiation, wind_speed, PAR et UV montrent une saisonnalité marquée.  
-Les variables salinity, chl, phaeo, silica, TIN, SI_TIN, SI_P et TIN_P montrent toutes un pic particulièrement élevé dans les derniers mois (avril-mai) ce qui correspond aux pics d'abondance vus avant chez Acantharea_B, Acantharea_D, Acantharea_F, RAD-A_X et RAD-B_X.
+Les variables salinity, chl, phaeo, silica, TIN, SI_TIN, SI_P et TIN_P montrent toutes un pic particulièrement élevé en 2022 en période de bloom et stratification ce qui correspond aux pics d'abondance vus avant chez Acantharea_B, Acantharea_D, Acantharea_F, RAD-A_X et RAD-B_X.
 
 ## ACP
 
 Les échantillons sont représentés par des points colorés en fonction du mois.
+
 ```{r}
-PCA_for_month = function(month) {
-  PC_data <- drop_na(META)
-  PC_data <- PC_data[PC_data$month %in% month, ]
-  
+PC_data <- drop_na(META)
+PC_data <- cbind(period = GetPeriod(PC_data$sample_id), PC_data)
+```
+
+```{r}
+PCA_for_period = function(p, title = paste(p, collapse = " - ")) {
+  data = subset(PC_data, period %in% p)
   # Enlever colonnes avec une variance nulle
-  pca <- prcomp(PC_data[8:22][, which(apply(PC_data[8:22], 2, var) != 0)], scale = TRUE)
-  PC_data$month = as.factor(PC_data$month)
+  pca <- prcomp(data[9:23][, which(apply(data[9:23], 2, var) != 0)], scale = TRUE)
   
-  a <- autoplot(pca, 
-                data = PC_data, 
-                colour = "month", 
-                size = 3, 
-                loadings = TRUE, 
-                loadings.label = TRUE, 
-                loadings.label.colour = "black")
-  a + scale_colour_manual(values = months_palette)
+  a <- autoplot(pca, data = data, size = 3, colour = "depth", loadings = TRUE, 
+                loadings.label = TRUE, loadings.label.colour = "black", loadings.label.size = 3)
+  return(a + ggtitle(title) + scale_color_manual(values = depth_palette))
 }
 ```
 
-```{r, fig.width=10, fig.height=10}
-PCA_for_month(unique(META$month)) # Numero de mois ou plusieurs mois avec c()
+Une ACP est réalisée pour chaque période sans distinction d'année, ainsi qu'une pour la totalité des données.
+```{r}
+mixing_PCA <- PCA_for_period(c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"), "mixing")
+bloom_PCA <- PCA_for_period(c("B_2021", "B_2022"), "bloom")
+strat_PCA <- PCA_for_period(c("S_2021", "S_2022"), "stratification")
+all_PCA <- PCA_for_period(unique(PC_data$period), "all periods")
 ```
 
-L'ACP ne représente que 50 % de la variablilité des données, ce qui est assez peu.  
+```{r, fig.width=10, fig.height=8}
+ggarrange(mixing_PCA, bloom_PCA, strat_PCA, all_PCA, ncol = 2, nrow = 2)
+```
+
+
+L'ACP représente 50 % de la variablilité des données. 
 Le gradient le plus fort sur PC1 est UV-salinity, et sur PC2 chl-temp.  
 Les variables PAR, solar_radiation, UV, wind_speed et air_temp sont fortement corrélées entre elles, comme les variables chl, TIN_P, TIN et phaeo.  
 Les mois d'hiver (novembre à mars) sont corrélées négativement au groupe UV etc. Au contraire, les mois d'été (mai à août) sont corrélée positivement à ce groupe.  
 De plus, certains points du mois d'avril sont fortement corrélés positivement au groupe chl etc.
 
+## Corrélogrammes
 
+La table de corrélation montre le nombre d'individus d'un ordre ainsi que les valeurs des paramètres physicochimiques pour chaque échantillon.
+```{r}
+cor_table <- cbind(div[5:20], META_srf[8:22])
+cor_table <- drop_na(cor_table)
+```
 
+La matrice de corrélation est d'abord remplie de NA et va montrer les valeurs de corrélation entre ordres de Radiolaires et paramètres physicochimiques.
+```{r}
+cor_mat <- data.frame(matrix(NA, nrow = 16, ncol = 15))
+rownames(cor_mat) <- colnames(cor_table[1:16])
+colnames(cor_mat) <- colnames(cor_table[17:31])  
+```
 
+```{r, echo=FALSE}
+kable(head(cor_mat[1:8]))
+```
+
+Les NA sont remplacés par la valeur de corrélation des deux vecteurs (ordre et paramètre) extraits de la table de corrélation.
+```{r}
+for (var in colnames(cor_mat)) {
+  for (order in rownames(cor_mat)) {
+    cor_mat[order, var] <- round(cor(cor_table[order], cor_table[var]), 2)
+  }
+}
+```
+
+La représentation sur corrélogramme :
+```{r}
+ggcorrplot(cor_mat) # a faire en fonction des periodes
+ggcorrplot(cor(cor_table[1:16]), hc.order = TRUE)
+ggcorrplot(cor(cor_table[17:31]), hc.order = TRUE)
+```
 
 
 

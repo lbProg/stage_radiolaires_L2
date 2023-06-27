@@ -22,9 +22,10 @@ names(order_palette) <- c("Acantharea_1",
                           "RAD-C_X",
                           "Radiolaria_XX",
                           "Spumellaria")
-show_col(order_palette)
+
+depth_palette <- c("#07b1f2", "#54d326")
+names(depth_palette) <- c("surface", "dcm")
 
 
 months_palette <- rainbow(10)
 names(months_palette) <- c("1", "2", "3", "4", "5", "6", "8", "10", "11", "12")
-show_col(months_palette)
