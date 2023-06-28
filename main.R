@@ -43,6 +43,8 @@ TAX <- read.csv("Data/TAX_pr2_Radiolaria_GoA.csv")
 META <- read.csv("Data/META_Radiolaria_GoA.csv")
 OTU <- read.csv("Data/OTU_Radiolaria_GoA.csv")
 
+TAX <- cbind(OTU_name = paste("OTU_", seq(1, 531, 1), sep = ""), TAX)
+
 source("palettes.R")
 
 months_equi <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
@@ -96,6 +98,21 @@ summ <- data.frame("nb_OTUs" = nrow(OTU),
 
 unique(TAX$Class)
 
+# Creation d'un tableau avec les ordres en colonnes et les echantillons en lignes
+
+orders_table <- cbind("order" = TAX$Order[which(OTU$X == TAX$X)], OTU[-1])
+orders_table <- select(orders_table, -contains("dcm"))
+
+orders_table <- orders_table %>%
+  group_by(order) %>%
+  summarize_all(sum)
+
+orders_table <- as.data.frame(orders_table)
+
+rownames(orders_table) <- orders_table$order
+orders_table <- orders_table[-1]
+
+orders_table <- data.frame(t(orders_table))
 
 # Normalisation du tableau OTU (abondance) ----------
 
@@ -146,21 +163,7 @@ ggplot(data = abund, aes(x = sample, fill = order, y = value)) +
 
 # Divesite de Shannon et equitabilite de Pielou
 
-div <- cbind("order" = TAX$Order[which(OTU$X == TAX$X)], OTU[-1])
-div <- select(div, -contains("dcm"))
-
-div
-
-div <- div %>%
-  group_by(order) %>%
-  summarize_all(sum)
-
-div <- as.data.frame(div)
-
-rownames(div) <- div$order
-div <- div[-1]
-
-div <- data.frame(t(div))
+div <- orders_table
 
 div <- cbind("Shannon" = diversity(div, MARGIN = 1, index = "shannon"), div)
 div <- cbind("Pielou" = div$Shannon / log(rowSums(div != 0)), div)
@@ -254,60 +257,98 @@ ggarrange(mixing_PCA, bloom_PCA, strat_PCA, all_PCA, ncol = 2, nrow = 2)
 
 # Correlogrammes
 
-cor_table <- cbind(div[5:20], META_srf[8:22])
-cor_table <- drop_na(cor_table)
-cor_table <- cbind("period" = GetPeriod(rownames(cor_table)), cor_table)
-
-
-ComputeCorrelation = function(cor_table_subset) {
-  df <- data.frame(matrix(NA, nrow = 16, ncol = 15))
-  rownames(df) <- colnames(cor_table_subset[1:16])
-  colnames(df) <- colnames(cor_table_subset[17:31])
+ComputeCorrelation = function(ind_table, var_table) {
+  df <- data.frame(matrix(NA, nrow = ncol(ind_table), ncol = ncol(var_table)))
+  colnames(df) <- colnames(var_table)
+  rownames(df) <- colnames(ind_table)
   
   for (var in colnames(df)) {
-    for (order in rownames(df)) {
-      df[order, var] <- round(cor(cor_table_subset[order], cor_table_subset[var]), 2)
+    for (ind in rownames(df)) {
+      df[ind, var] <- round(cor(ind_table[ind], var_table[var]), 2)
     }
   }
   
   return(df)
 }
 
-orders_corr <- ggcorrplot(cor(cor_table[2:17]), hc.order = TRUE, title = "orders")
-variables_corr <- ggcorrplot(cor(cor_table[18:32]), hc.order = TRUE, title = "variables")
-
-ggarrange(orders_corr, variables_corr, ncol = 2, nrow = 1)
-
-PlotCorrelogram = function(matrix, title) {
-  p <- ggcorrplot(matrix, hc.order = TRUE, title = title) +
+PlotCorrelogram = function(matrix, title = "") {
+  p <- ggcorrplot(matrix, title = title) +
     theme(axis.text.x = element_text(size = 8),
-          axis.text.y = element_text(size = 8))
+          axis.text.y = element_text(size = 6),
+          legend.position = "none")
+  
+  return(p)
 }
 
-corr_mixing <- ComputeCorrelation(subset(cor_table, period %in% c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"))[-1])
+variables_corr_table <- META_srf[8:22]
+rownames(variables_corr_table) <- META_srf$sample_id
+variables_corr_table <- drop_na(variables_corr_table)
+variables_corr_table <- cbind("period" = GetPeriod(rownames(variables_corr_table)), variables_corr_table)
+
+orders_corr_table <- orders_table
+orders_corr_table$NA_DROP <- META_srf$TIN
+orders_corr_table <- drop_na(orders_corr_table)
+orders_corr_table <- subset(orders_corr_table, select = -NA_DROP)
+orders_corr_table <- cbind("period" = GetPeriod(rownames(orders_corr_table)), orders_corr_table)
+
+orders_corr_plot <- ggcorrplot(cor(orders_corr_table[-1]), hc.order = TRUE, title = "orders")
+variables_corr_plot <- ggcorrplot(cor(variables_corr_table[-1]), hc.order = TRUE, title = "variables")
+
+ggarrange(orders_corr_plot, variables_corr_plot, ncol = 2, nrow = 1)
+
+
+# pour chaque periode
+corr_mixing <- ComputeCorrelation(subset(orders_corr_table, period %in% c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"))[-1],
+                                  subset(variables_corr_table, period %in% c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"))[-1])
 corr_m_plot <- PlotCorrelogram(corr_mixing, "mixing")
 
-corr_bloom <- ComputeCorrelation(subset(cor_table, period %in% c("B_2021", "B_2022"))[-1])
+corr_bloom <- ComputeCorrelation(subset(orders_corr_table, period %in% c("B_2021", "B_2022"))[-1],
+                                 subset(variables_corr_table, period %in% c("B_2021", "B_2022"))[-1])
 corr_b_plot <- PlotCorrelogram(corr_bloom, title = "bloom")
 
-corr_strat <- ComputeCorrelation(subset(cor_table, period %in% c("S_2021", "S_2022"))[-1])
+corr_strat <- ComputeCorrelation(subset(orders_corr_table, period %in% c("S_2021", "S_2022"))[-1],
+                                 subset(variables_corr_table, period %in% c("S_2021", "S_2022"))[-1])
 corr_s_plot <- PlotCorrelogram(corr_strat, title = "stratification")
 
-corr_all <- ComputeCorrelation(cor_table[-1])
+corr_all <- ComputeCorrelation(orders_corr_table[-1],
+                               variables_corr_table[-1])
 corr_all_plot <- PlotCorrelogram(corr_all, title = "all periods")
 
 ggarrange(corr_m_plot, corr_b_plot, corr_s_plot, corr_all_plot, ncol = 2, nrow = 2)
 
+# Par OTU
+OTU_corr_table <- data.frame(select(OTU, -contains("dcm"))[-1])
+rownames(OTU_corr_table) <- paste("OTU_", seq(1, 531, 1), sep = "")
+OTU_corr_table <- rbind(TIN_NA_DROP = META_srf$TIN, OTU_corr_table)
+OTU_corr_table <- OTU_corr_table[, colSums(is.na(OTU_corr_table)) == 0]
+OTU_corr_table <- OTU_corr_table[-1, ]
 
+OTU_corr_table <- cbind(OTU_name = rownames(OTU_corr_table), OTU_corr_table)
 
-autocorrplots <- lapply(colnames(cor_table[1:16]), function(i) {
-  a <- acf(cor_table[[i]])
-  b <- with(a, data.frame(lag, acf))
-  
-  ggplot(data = b, mapping = aes(x = lag, y = acf)) +
-    geom_hline(aes(yintercept = 0)) +
-    geom_segment(mapping = aes(xend = lag, yend = 0)) +
-    ggtitle(i)
-})
+OTU_corr_table <- cbind(order = TAX$Order[match(TAX$OTU_name, rownames(OTU_corr_table))], OTU_corr_table)
+OTU_corr_table$order <- as.factor(OTU_corr_table$order)
+OTU_corr_table <- OTU_corr_table[order(OTU_corr_table$order), ]
 
-grid.arrange(grobs = autocorrplots, ncol = 4)
+OTU_correlation <- ComputeCorrelation(as.data.frame(t(OTU_corr_table[, -c(1, 2)])), as.data.frame(drop_na(META_srf[8:22])))
+OTU_correlation <- cbind(OTU_name = rownames(OTU_correlation), OTU_correlation)
+OTU_correlation <- cbind(order = TAX$Order[match(TAX$OTU_name, OTU_correlation$OTU_name)], OTU_correlation)
+OTU_correlation <- gather(OTU_correlation, "var", "value", -c(OTU_name, order))
+OTU_correlation$var <- as.factor(OTU_correlation$var)
+OTU_correlation$OTU_name <- as.factor(OTU_correlation$OTU_name)
+OTU_correlation <- OTU_correlation[order(OTU_correlation$order), ]
+
+PlotCorrelogramLabeled = function(matrix) {
+  p <- ggplot(data = matrix, aes(paste0(OTU_name, "&", order), y = var, fill = value)) + 
+    geom_tile() +
+    guides(x = ggh4x::guide_axis_nested(delim = "&"), vjust = 1) +
+    scale_x_discrete() +
+    theme(axis.text.x = element_text(size = 8),
+          axis.text.y = element_text(size = 6),
+          legend.position = "none")
+}
+
+corr_1 <- PlotCorrelogramLabeled(OTU_correlation[OTU_correlation$order %in% unique(OTU_correlation$order)[1:2], ])
+corr_1
+
+ggarrange(corr_1, corr_2, corr_3, ncol = 1, nrow = 3)
+
