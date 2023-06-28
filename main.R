@@ -1,3 +1,10 @@
+# A faire
+# - correllogrammes par especes et par grands groupes (Nassellaires Spumellaires Acanthaires Gpes env)
+# - echelle de temps lineaire sur plots (breaks la ou echantillons pour montrer abondance 0)
+# - montrer dcm sur plots d'abondance individuelle
+# - faire 1 - Pielou ?
+
+
 # Importation des librairies ----------
 
 library(dplyr)
@@ -228,7 +235,7 @@ suppressMessages(grid.arrange(grobs = var_plots, ncol = 4)) # bof bof
 PC_data <- drop_na(META)
 PC_data <- cbind(period = GetPeriod(PC_data$sample_id), PC_data)
 
-PCA_for_period = function(p, title = paste(p, collapse = " - ")) {
+PCAForPeriod = function(p, title = paste(p, collapse = " - ")) {
   data = subset(PC_data, period %in% p)
   # Enlever colonnes avec une variance nulle
   pca <- prcomp(data[9:23][, which(apply(data[9:23], 2, var) != 0)], scale = TRUE)
@@ -237,10 +244,10 @@ PCA_for_period = function(p, title = paste(p, collapse = " - ")) {
   return(a + ggtitle(title) + scale_color_manual(values = depth_palette))
 }
 
-mixing_PCA <- PCA_for_period(c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"), "mixing")
-bloom_PCA <- PCA_for_period(c("B_2021", "B_2022"), "bloom")
-strat_PCA <- PCA_for_period(c("S_2021", "S_2022"), "stratification")
-all_PCA <- PCA_for_period(unique(PC_data$period), "all periods")
+mixing_PCA <- PCAForPeriod(c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"), "mixing")
+bloom_PCA <- PCAForPeriod(c("B_2021", "B_2022"), "bloom")
+strat_PCA <- PCAForPeriod(c("S_2021", "S_2022"), "stratification")
+all_PCA <- PCAForPeriod(unique(PC_data$period), "all periods")
 
 
 ggarrange(mixing_PCA, bloom_PCA, strat_PCA, all_PCA, ncol = 2, nrow = 2)
@@ -249,21 +256,47 @@ ggarrange(mixing_PCA, bloom_PCA, strat_PCA, all_PCA, ncol = 2, nrow = 2)
 
 cor_table <- cbind(div[5:20], META_srf[8:22])
 cor_table <- drop_na(cor_table)
-
-cor_mat <- data.frame(matrix(NA, nrow = 16, ncol = 15))
-rownames(cor_mat) <- colnames(cor_table[1:16])
-colnames(cor_mat) <- colnames(cor_table[17:31])
+cor_table <- cbind("period" = GetPeriod(rownames(cor_table)), cor_table)
 
 
-for (var in colnames(cor_mat)) {
-  for (order in rownames(cor_mat)) {
-    cor_mat[order, var] <- round(cor(cor_table[order], cor_table[var]), 2)
+ComputeCorrelation = function(cor_table_subset) {
+  df <- data.frame(matrix(NA, nrow = 16, ncol = 15))
+  rownames(df) <- colnames(cor_table_subset[1:16])
+  colnames(df) <- colnames(cor_table_subset[17:31])
+  
+  for (var in colnames(df)) {
+    for (order in rownames(df)) {
+      df[order, var] <- round(cor(cor_table_subset[order], cor_table_subset[var]), 2)
+    }
   }
+  
+  return(df)
 }
 
-ggcorrplot(cor_mat) # En fonction des periodes
-ggcorrplot(cor(cor_table[1:16]), hc.order = TRUE)
-ggcorrplot(cor(cor_table[17:31]), hc.order = TRUE)
+orders_corr <- ggcorrplot(cor(cor_table[2:17]), hc.order = TRUE, title = "orders")
+variables_corr <- ggcorrplot(cor(cor_table[18:32]), hc.order = TRUE, title = "variables")
+
+ggarrange(orders_corr, variables_corr, ncol = 2, nrow = 1)
+
+PlotCorrelogram = function(matrix, title) {
+  p <- ggcorrplot(matrix, hc.order = TRUE, title = title) +
+    theme(axis.text.x = element_text(size = 8),
+          axis.text.y = element_text(size = 8))
+}
+
+corr_mixing <- ComputeCorrelation(subset(cor_table, period %in% c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"))[-1])
+corr_m_plot <- PlotCorrelogram(corr_mixing, "mixing")
+
+corr_bloom <- ComputeCorrelation(subset(cor_table, period %in% c("B_2021", "B_2022"))[-1])
+corr_b_plot <- PlotCorrelogram(corr_bloom, title = "bloom")
+
+corr_strat <- ComputeCorrelation(subset(cor_table, period %in% c("S_2021", "S_2022"))[-1])
+corr_s_plot <- PlotCorrelogram(corr_strat, title = "stratification")
+
+corr_all <- ComputeCorrelation(cor_table[-1])
+corr_all_plot <- PlotCorrelogram(corr_all, title = "all periods")
+
+ggarrange(corr_m_plot, corr_b_plot, corr_s_plot, corr_all_plot, ncol = 2, nrow = 2)
 
 
 
