@@ -23,6 +23,9 @@ names(order_palette) <- c("Acantharea_1",
                           "Radiolaria_XX",
                           "Spumellaria")
 
+group_palette <- c("#084D96", "red", colorRampPalette(brewer.pal(3, "Oranges"))(4), "black")
+names(group_palette) <- c("Acantharea", "Nassellaria", "RAD-A", "RAD-B", "RAD-C", "Radiolaria_X", "Spumellaria")
+
 depth_palette <- c("#07b1f2", "#54d326")
 names(depth_palette) <- c("surface", "dcm")
 

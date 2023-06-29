@@ -17,6 +17,7 @@ library(ggcorrplot)
 library(tseries)
 library(ggh4x)
 library(ggpubr)
+library(pheatmap)
 
 
 # Fonctions utiles par la suite ----------
@@ -44,6 +45,7 @@ META <- read.csv("Data/META_Radiolaria_GoA.csv")
 OTU <- read.csv("Data/OTU_Radiolaria_GoA.csv")
 
 TAX <- cbind(OTU_name = paste("OTU_", seq(1, 531, 1), sep = ""), TAX)
+META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
 
 source("palettes.R")
 
@@ -56,13 +58,17 @@ period_labs <- c("M", "M", "B", "S", "M", "M", "B", "S")
 names(period_labs) <- c("M_2_2020", "M_1_2021", "B_2021", "S_2021",
                         "M_2_2021", "M_1_2022", "B_2022", "S_2022")
 
-META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
+
+
+OTU_to_group <- data.frame(OTU = TAX$OTU_name, Class = TAX$Class, Order = TAX$Order, group = "")
+OTU_to_group$group <- OTU_to_group$Class
+OTU_to_group[OTU_to_group$Class == "Polycystinea", ]$group <- OTU_to_group[OTU_to_group$Class == "Polycystinea", ]$Order
 
 
 # Verification de la correspondnce des tableaux entre eux ----------
 
 # Correspondance des OTUs
-TAX_to_OTU <- data.frame(OTU[1], TAX[1])
+TAX_to_OTU <- data.frame(OTU[1], TAX[2])
 TAX_to_OTU$match <- TAX_to_OTU[1] == TAX_to_OTU[2]
 
 length(TAX_to_OTU$match)
@@ -149,7 +155,6 @@ abund$year <- paste("20", substr(abund$sample, 3, 4), sep = "")
 ggplot(data = abund, aes(x = sample, fill = order, y = value)) +
   geom_bar(stat = "identity") +
   facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
-  #guides(x = ggh4x::guide_axis_nested(delim = "&"), vjust = 1) +
   guides(fill = guide_legend(ncol = 1)) +
   theme(legend.key.size = unit(0.4, 'cm'),
         legend.text = element_text(size = 10),
@@ -297,7 +302,7 @@ variables_corr_plot <- ggcorrplot(cor(variables_corr_table[-1]), hc.order = TRUE
 ggarrange(orders_corr_plot, variables_corr_plot, ncol = 2, nrow = 1)
 
 
-# pour chaque periode
+# Pour chaque periode
 corr_mixing <- ComputeCorrelation(subset(orders_corr_table, period %in% c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"))[-1],
                                   subset(variables_corr_table, period %in% c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"))[-1])
 corr_m_plot <- PlotCorrelogram(corr_mixing, "mixing")
@@ -325,30 +330,16 @@ OTU_corr_table <- OTU_corr_table[-1, ]
 
 OTU_corr_table <- cbind(OTU_name = rownames(OTU_corr_table), OTU_corr_table)
 
-OTU_corr_table <- cbind(order = TAX$Order[match(TAX$OTU_name, rownames(OTU_corr_table))], OTU_corr_table)
-OTU_corr_table$order <- as.factor(OTU_corr_table$order)
-OTU_corr_table <- OTU_corr_table[order(OTU_corr_table$order), ]
+OTU_corr_table <- cbind(group = OTU_to_group$group[match(OTU_to_group$OTU, rownames(OTU_corr_table))], OTU_corr_table)
+OTU_corr_table$group <- as.factor(OTU_corr_table$group)
+
 
 OTU_correlation <- ComputeCorrelation(as.data.frame(t(OTU_corr_table[, -c(1, 2)])), as.data.frame(drop_na(META_srf[8:22])))
-OTU_correlation <- cbind(OTU_name = rownames(OTU_correlation), OTU_correlation)
-OTU_correlation <- cbind(order = TAX$Order[match(TAX$OTU_name, OTU_correlation$OTU_name)], OTU_correlation)
-OTU_correlation <- gather(OTU_correlation, "var", "value", -c(OTU_name, order))
-OTU_correlation$var <- as.factor(OTU_correlation$var)
-OTU_correlation$OTU_name <- as.factor(OTU_correlation$OTU_name)
-OTU_correlation <- OTU_correlation[order(OTU_correlation$order), ]
+OTU_correlation <- cbind(group = OTU_corr_table$group[match(OTU_corr_table$OTU_name, rownames(OTU_correlation))], OTU_correlation)
 
-PlotCorrelogramLabeled = function(matrix) {
-  p <- ggplot(data = matrix, aes(paste0(OTU_name, "&", order), y = var, fill = value)) + 
-    geom_tile() +
-    guides(x = ggh4x::guide_axis_nested(delim = "&"), vjust = 1) +
-    scale_x_discrete() +
-    theme(axis.text.x = element_text(size = 8),
-          axis.text.y = element_text(size = 6),
-          legend.position = "none")
-}
+OTU_correlation <- drop_na(OTU_correlation)
 
-corr_1 <- PlotCorrelogramLabeled(OTU_correlation[OTU_correlation$order %in% unique(OTU_correlation$order)[1:2], ])
-corr_1
-
-ggarrange(corr_1, corr_2, corr_3, ncol = 1, nrow = 3)
-
+pheatmap(t(OTU_correlation[-1]),
+         annotation_col = OTU_correlation[1], 
+         annotation_colors = list(group = group_palette), 
+         show_colnames = FALSE)
