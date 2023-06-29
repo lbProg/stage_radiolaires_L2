@@ -145,16 +145,33 @@ abund$month <- factor(abund$month, levels = c("1", "2", "3", "4", "5", "6", "8",
 
 abund$date <- META_srf$date[match(abund$sample, META_srf$sample_id)]
 abund$date <- factor(abund$date, levels = unique(abund$date))
+abund$date <- as.Date(abund$date, "%d/%m/%Y")
 
 abund$period <- GetPeriod(abund$sample)
 
 abund$year <- paste("20", substr(abund$sample, 3, 4), sep = "")
 
+
+
+time_scale <- data.frame(date = rep(rep(seq(as.Date("2020-11-1"), as.Date("2022-5-31"), by = "day"), each = 16), each = 3))
+time_scale$sample <- paste("A_", substr(time_scale$date, 3, 4), substr(time_scale$date, 6, 7), substr(time_scale$date, 9, 10), "_", rep(1:3, each = 16), sep = "")
+time_scale$order <- "NA"
+time_scale$order <- rep(abund$order[1:16], nrow(time_scale)/16)
+time_scale[match(time_scale$sample, abund$sample), ]
+
+time_scale$date2 <- "NA"
+time_scale$date2[time_scale$date == abund$date] <- "ee"
+time_scale$date[match(time_scale$date, abund$date)]
+
+nrow(time_scale)
+nrow(abund)
+
 # Stacked barplot
 
-ggplot(data = abund, aes(x = sample, fill = order, y = value)) +
+ggplot(data = abund, aes(x = date, fill = order, y = value)) +
   geom_bar(stat = "identity") +
   facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
+  scale_x_continuous(breaks = as.numeric(abund$date), labels = format(abund$date, format = "%d/%m")) +
   guides(fill = guide_legend(ncol = 1)) +
   theme(legend.key.size = unit(0.4, 'cm'),
         legend.text = element_text(size = 10),
