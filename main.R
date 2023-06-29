@@ -151,32 +151,34 @@ abund$period <- GetPeriod(abund$sample)
 
 abund$year <- paste("20", substr(abund$sample, 3, 4), sep = "")
 
+abund$date <- as.character(abund$date)
 
+ts <- seq.POSIXt(as.POSIXlt("2020-11-1"), as.POSIXlt("2022-5-31"), by = "day")
+ts <- format.POSIXct(ts,'%Y-%m-%d')
 
-time_scale <- data.frame(date = rep(rep(seq(as.Date("2020-11-1"), as.Date("2022-5-31"), by = "day"), each = 16), each = 3))
-time_scale$sample <- paste("A_", substr(time_scale$date, 3, 4), substr(time_scale$date, 6, 7), substr(time_scale$date, 9, 10), "_", rep(1:3, each = 16), sep = "")
-time_scale$order <- "NA"
-time_scale$order <- rep(abund$order[1:16], nrow(time_scale)/16)
-time_scale[match(time_scale$sample, abund$sample), ]
+df <- data.frame(date = ts)
 
-time_scale$date2 <- "NA"
-time_scale$date2[time_scale$date == abund$date] <- "ee"
-time_scale$date[match(time_scale$date, abund$date)]
+data_with_missing_times <- full_join(df,abund)
+data_with_missing_times$date <- as.Date(data_with_missing_times$date)
+data_with_missing_times$date2 <- NA
+data_with_missing_times$date2[!is.na(data_with_missing_times$sample)] <- as.character(data_with_missing_times$date[!is.na(data_with_missing_times$sample)])
 
-nrow(time_scale)
-nrow(abund)
+data_with_missing_times$date2 <- as.Date(data_with_missing_times$date2, )
 
 # Stacked barplot
 
-ggplot(data = abund, aes(x = date, fill = order, y = value)) +
+ggplot(data = data_with_missing_times, aes(x = date, fill = order, y = value)) +
   geom_bar(stat = "identity") +
   facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
-  scale_x_continuous(breaks = as.numeric(abund$date), labels = format(abund$date, format = "%d/%m")) +
+  #scale_x_date(date_breaks = "week") +
+  scale_x_date(breaks = data_with_missing_times$date2, date_labels = "%d/%m") +
   guides(fill = guide_legend(ncol = 1)) +
   theme(legend.key.size = unit(0.4, 'cm'),
         legend.text = element_text(size = 10),
         axis.title.x = element_text(size = 8),
-        axis.text.x = element_text(size = 10, angle = 80, hjust = 1)) +
+        axis.text.x = element_text(size = 10, angle = 80, hjust = 1),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank()) +
   xlab("sample") +
   ylab("abundance") +
   ggtitle("Relative abundance of Radiolarian orders for each sampling date") +
