@@ -166,13 +166,15 @@ data_with_missing_times$date2[!is.na(data_with_missing_times$sample)] <- as.char
 data_with_missing_times$year <- paste("20", substr(data_with_missing_times$date, 3, 4), sep = "")
 data_with_missing_times$period <- GetPeriod(paste("aa", substr(data_with_missing_times$date, 3, 4), substr(data_with_missing_times$date, 6, 7), sep = ""))
 
-data_with_missing_times$date2 <- as.Date(data_with_missing_times$date2, )
+data_with_missing_times$date2 <- as.Date(data_with_missing_times$date2)
+
+data_with_missing_times$value[is.na(data_with_missing_times$value)] <- 0
 
 # Stacked barplot
 
 ggplot(data = data_with_missing_times, aes(x = date, fill = order, y = value)) +
   geom_bar(stat = "identity") +
-  facet_nested(cols = vars(year, period), scales = "free", space = "free", labeller = labeller(period = period_labs)) +
+  facet_nested(cols = vars(year, period), space = "free", scales = "free", labeller = labeller(period = period_labs)) +
   #scale_x_date(date_breaks = "week") +
   scale_x_date(breaks = data_with_missing_times$date2, date_labels = "%d/%m") +
   guides(fill = guide_legend(ncol = 1)) +
@@ -181,12 +183,42 @@ ggplot(data = data_with_missing_times, aes(x = date, fill = order, y = value)) +
         axis.title.x = element_text(size = 8),
         axis.text.x = element_text(size = 10, angle = 80, hjust = 1),
         panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank()) +
+        panel.grid.minor.x = element_blank(),
+        panel.spacing = unit(0,'lines'),
+        panel.background = element_rect(fill = NA, color = "black")) +
   xlab("sample") +
   ylab("abundance") +
   ggtitle("Relative abundance of Radiolarian orders for each sampling date") +
   scale_y_continuous(expand = c(0, 0)) +
   scale_fill_manual(values = order_palette)
+
+
+data_with_missing_times2 <- data_with_missing_times %>%
+  group_by(date, order, month, period, year, date2) %>%
+  summarize(across(value, sum))
+
+ggplot(data = data_with_missing_times2, aes(x = date, fill = order, y = value/2)) +
+  geom_area() +
+  geom_bar(stat = "identity") +
+  facet_nested(cols = vars(year, period), scales = "free", space = "free", labeller = labeller(period = period_labs)) +
+  #scale_x_date(date_breaks = "week") +
+  scale_x_date(breaks = data_with_missing_times2$date2, date_labels = "%d/%m") +
+  guides(fill = guide_legend(ncol = 1)) +
+  theme(legend.key.size = unit(0.4, 'cm'),
+        legend.text = element_text(size = 10),
+        axis.title.x = element_text(size = 8),
+        axis.text.x = element_text(size = 10, angle = 80, hjust = 1),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.spacing = unit(0,'lines'),
+        panel.background = element_rect(fill = NA, color = "black")) +
+  xlab("sample") +
+  ylab("abundance") +
+  ggtitle("Relative abundance of Radiolarian orders for each sampling date") +
+  scale_y_continuous(expand = c(0, 0)) +
+  scale_fill_manual(values = order_palette)
+
+
 
 # Divesite de Shannon et equitabilite de Pielou
 
