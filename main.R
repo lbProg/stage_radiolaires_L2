@@ -163,13 +163,16 @@ data_with_missing_times$date <- as.Date(data_with_missing_times$date)
 data_with_missing_times$date2 <- NA
 data_with_missing_times$date2[!is.na(data_with_missing_times$sample)] <- as.character(data_with_missing_times$date[!is.na(data_with_missing_times$sample)])
 
+data_with_missing_times$year <- paste("20", substr(data_with_missing_times$date, 3, 4), sep = "")
+data_with_missing_times$period <- GetPeriod(paste("aa", substr(data_with_missing_times$date, 3, 4), substr(data_with_missing_times$date, 6, 7), sep = ""))
+
 data_with_missing_times$date2 <- as.Date(data_with_missing_times$date2, )
 
 # Stacked barplot
 
 ggplot(data = data_with_missing_times, aes(x = date, fill = order, y = value)) +
   geom_bar(stat = "identity") +
-  facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
+  facet_nested(cols = vars(year, period), scales = "free", space = "free", labeller = labeller(period = period_labs)) +
   #scale_x_date(date_breaks = "week") +
   scale_x_date(breaks = data_with_missing_times$date2, date_labels = "%d/%m") +
   guides(fill = guide_legend(ncol = 1)) +
