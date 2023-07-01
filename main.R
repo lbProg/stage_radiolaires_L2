@@ -3,6 +3,10 @@
 # - echelle de temps lineaire sur plots (breaks la ou echantillons pour montrer abondance 0)
 # - montrer dcm sur plots d'abondance individuelle
 # - faire 1 - Pielou ?
+# - evolution d'un indice de similarite entre les 2 replicats d'abondance totale
+# - regrouper parametres sur correlogrammes
+# - heatmap par periode
+# - NMDS
 
 
 # Importation des librairies ----------
@@ -37,6 +41,15 @@ GetPeriod = function(samples) {
   return(p)
 }
 
+GetMonth = function(samples) {
+  # Generates a month id column
+  m <- substr(samples, 5, 6)
+  m[m != "10"] <- gsub("0", "", m[m != "10"])
+  
+  m <- factor(m, levels = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"))
+  
+  return(m)
+}
 
 # Importation des jeux de donnees ----------
 
@@ -45,11 +58,12 @@ META <- read.csv("Data/META_Radiolaria_GoA.csv")
 OTU <- read.csv("Data/OTU_Radiolaria_GoA.csv")
 
 TAX <- cbind(OTU_name = paste("OTU_", seq(1, 531, 1), sep = ""), TAX)
+META <- select(META, -c("phaeo", "Si_TIN", "Si_P", "TIN_P", "air_temp", "solar_radiation"))
 META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
 
 source("palettes.R")
 
-months_equi <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
+months_equi <- data.frame("month" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
                           "month_str" = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
 periods <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
                       "period" = c("M_1", "M_1", "B", "B", "S", "S", "S", "S", "S", "M_2", "M_2", "M_2"))
@@ -59,31 +73,9 @@ names(period_labs) <- c("M_2_2020", "M_1_2021", "B_2021", "S_2021",
                         "M_2_2021", "M_1_2022", "B_2022", "S_2022")
 
 
-
 OTU_to_group <- data.frame(OTU = TAX$OTU_name, Class = TAX$Class, Order = TAX$Order, group = "")
 OTU_to_group$group <- OTU_to_group$Class
 OTU_to_group[OTU_to_group$Class == "Polycystinea", ]$group <- OTU_to_group[OTU_to_group$Class == "Polycystinea", ]$Order
-
-
-# Verification de la correspondnce des tableaux entre eux ----------
-
-# Correspondance des OTUs
-TAX_to_OTU <- data.frame(OTU[1], TAX[2])
-TAX_to_OTU$match <- TAX_to_OTU[1] == TAX_to_OTU[2]
-
-length(TAX_to_OTU$match)
-which(TAX_to_OTU$match == FALSE)
-
-# Correspondance des samples
-META_to_OTU <- data.frame(META[1], colnames(OTU[-1]))
-META_to_OTU$match <- META_to_OTU[1] == META_to_OTU[2]
-
-length(META_to_OTU$match)
-which(META_to_OTU$match == FALSE)
-
-# Correspondance des replicats entre eux (META)
-META_match = as.data.frame(META[META$sample == "a", ] == META[META$sample == "b", ])
-which(META_match[c(-1, -6)] == FALSE) # Les 2 réplicats (a/b) sont exactement identiques partout
 
 
 # Description des jeux de données ----------
@@ -93,7 +85,7 @@ summ <- data.frame("nb_OTUs" = nrow(OTU),
                   "mean_abund" = mean(as.matrix(OTU[-1])),
                   "nb_samples" = ncol(OTU[-1]),
                   "nb_days" = length(unique(substr(colnames(OTU[-1]), 3, 8))),
-                  "nb_variables" = ncol(META[7:22]),
+                  "nb_variables" = ncol(META[8:16]),
                   "nb_families" = length(unique(TAX$Family)),
                   "nb_Acantharea" = NumberOf("Acantharea"),
                   "nb_Polycystinea" = NumberOf("Polycystinea"),
@@ -102,7 +94,6 @@ summ <- data.frame("nb_OTUs" = nrow(OTU),
                   "nb_RAD-C" = NumberOf("RAD-C"),
                   "nb_Radiolaria_X" = NumberOf("Radiolaria_X"))
 
-unique(TAX$Class)
 
 # Creation d'un tableau avec les ordres en colonnes et les echantillons en lignes
 
@@ -139,132 +130,104 @@ abund <- abund %>%
   group_by(sample, class, order) %>%
   summarize(across(value, sum))
 
-abund$month <- substr(abund$sample, 5, 6)
-abund$month[abund$month != 10] <- gsub("0", "", abund$month[abund$month != 10])
-abund$month <- factor(abund$month, levels = c("1", "2", "3", "4", "5", "6", "8", "10", "11", "12"))
-
-abund$date <- META_srf$date[match(abund$sample, META_srf$sample_id)]
-abund$date <- factor(abund$date, levels = unique(abund$date))
-abund$date <- as.Date(abund$date, "%d/%m/%Y")
-
+abund$month <- GetMonth(abund$sample)
 abund$period <- GetPeriod(abund$sample)
 
 abund$year <- paste("20", substr(abund$sample, 3, 4), sep = "")
 
-abund$date <- as.character(abund$date)
+abund <- abund %>%
+  group_by(order, month, year, period) %>%
+  summarize(across(value, mean))
 
-ts <- seq.POSIXt(as.POSIXlt("2020-11-1"), as.POSIXlt("2022-5-31"), by = "day")
-ts <- format.POSIXct(ts,'%Y-%m-%d')
+for (i in unique(abund$order)) {
+  abund <- rbind(abund, data.frame(order = i, month = "7", year = "2021", period = "S_2021", value = 0))
+  abund <- rbind(abund, data.frame(order = i, month = "9", year = "2021", period = "S_2021", value = 0))
+}
 
-df <- data.frame(date = ts)
+abund$period <- factor(abund$period, levels = names(period_labs))
 
-data_with_missing_times <- full_join(df,abund)
-data_with_missing_times$date <- as.Date(data_with_missing_times$date)
-data_with_missing_times$date2 <- NA
-data_with_missing_times$date2[!is.na(data_with_missing_times$sample)] <- as.character(data_with_missing_times$date[!is.na(data_with_missing_times$sample)])
-
-data_with_missing_times$year <- paste("20", substr(data_with_missing_times$date, 3, 4), sep = "")
-data_with_missing_times$period <- GetPeriod(paste("aa", substr(data_with_missing_times$date, 3, 4), substr(data_with_missing_times$date, 6, 7), sep = ""))
-
-data_with_missing_times$date2 <- as.Date(data_with_missing_times$date2)
-
-data_with_missing_times$value[is.na(data_with_missing_times$value)] <- 0
+abund$month_str <- months_equi$month_str[match(abund$month, months_equi$month)]
+abund$month_str <- factor(abund$month_str, levels = months_equi$month_str)
 
 # Stacked barplot
 
-ggplot(data = data_with_missing_times, aes(x = date, fill = order, y = value)) +
+ggplot(data = abund, aes(x = month_str, fill = order, y = value)) +
   geom_bar(stat = "identity") +
   facet_nested(cols = vars(year, period), space = "free", scales = "free", labeller = labeller(period = period_labs)) +
-  #scale_x_date(date_breaks = "week") +
-  scale_x_date(breaks = data_with_missing_times$date2, date_labels = "%d/%m") +
   guides(fill = guide_legend(ncol = 1)) +
   theme(legend.key.size = unit(0.4, 'cm'),
         legend.text = element_text(size = 10),
         axis.title.x = element_text(size = 8),
-        axis.text.x = element_text(size = 10, angle = 80, hjust = 1),
+        axis.text.x = element_text(size = 10, angle = 80, hjust = 0, vjust = 0),
         panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank(),
-        panel.spacing = unit(0,'lines'),
-        panel.background = element_rect(fill = NA, color = "black")) +
-  xlab("sample") +
+        panel.grid.minor.y = element_blank(),
+        panel.spacing = unit(0.1, "lines"),) +
+  xlab("month") +
   ylab("abundance") +
-  ggtitle("Relative abundance of Radiolarian orders for each sampling date") +
+  ggtitle("Relative abundance of Radiolarian orders for each period") +
   scale_y_continuous(expand = c(0, 0)) +
   scale_fill_manual(values = order_palette)
-
-
-data_with_missing_times2 <- data_with_missing_times %>%
-  group_by(date, order, month, period, year, date2) %>%
-  summarize(across(value, sum))
-
-ggplot(data = data_with_missing_times2, aes(x = date, fill = order, y = value/2)) +
-  geom_area() +
-  geom_bar(stat = "identity") +
-  facet_nested(cols = vars(year, period), scales = "free", space = "free", labeller = labeller(period = period_labs)) +
-  #scale_x_date(date_breaks = "week") +
-  scale_x_date(breaks = data_with_missing_times2$date2, date_labels = "%d/%m") +
-  guides(fill = guide_legend(ncol = 1)) +
-  theme(legend.key.size = unit(0.4, 'cm'),
-        legend.text = element_text(size = 10),
-        axis.title.x = element_text(size = 8),
-        axis.text.x = element_text(size = 10, angle = 80, hjust = 1),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank(),
-        panel.spacing = unit(0,'lines'),
-        panel.background = element_rect(fill = NA, color = "black")) +
-  xlab("sample") +
-  ylab("abundance") +
-  ggtitle("Relative abundance of Radiolarian orders for each sampling date") +
-  scale_y_continuous(expand = c(0, 0)) +
-  scale_fill_manual(values = order_palette)
-
 
 
 # Divesite de Shannon et equitabilite de Pielou
 
-div <- orders_table
+div <- data.frame("Shannon" = diversity(orders_table, MARGIN = 1, index = "shannon"))
+div$Pielou <- div$Shannon / log(rowSums(orders_table != 0))
 
-div <- cbind("Shannon" = diversity(div, MARGIN = 1, index = "shannon"), div)
-div <- cbind("Pielou" = div$Shannon / log(rowSums(div != 0)), div)
+div$month <- GetMonth(rownames(div))
 
-div <- cbind("date" = META_srf$date, div)
-div <- cbind("sample" = rownames(div), div)
+div$period <- GetPeriod(rownames(div))
+div$year <- paste("20", substr(rownames(div), 3, 4), sep = "")
 
-div$period <- GetPeriod(div$sample)
-div$year <- paste("20", substr(div$sample, 3, 4), sep = "")
+div <- drop_na(div)
 
-div$date <- factor(div$date, levels = unique(div$date)) # Sinon ordre alphabetique nuul
+div <- div %>%
+  group_by(month, period, year) %>%
+  summarize(across(c(Shannon, Pielou), mean))
 
+div <- rbind(div, data.frame(month = "7", period = "S_2021", year = "2021", Shannon = 0, Pielou = 0))
+div <- rbind(div, data.frame(month = "9", period = "S_2021", year = "2021", Shannon = 0, Pielou = 0))
 
-ggplot(data = div, aes(x = date)) +
-  geom_line(aes(y = Shannon, group = 1), colour = "red") +
-  geom_line(aes(y = 2*Pielou, group = 1), colour = "green") +
-  facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
-  scale_y_continuous(name = "Shannon diversity", 
-                     sec.axis = sec_axis(trans = ~./2, name = "Pielou evenness", breaks = seq(0, 1, 0.25))) +
-  theme(axis.text.x = element_text(size = 10, angle = 80, hjust = 1),
-        axis.title.y = element_text(color = "red"),
-        axis.title.y.right = element_text(color = "green"))
+div$month_str <- months_equi$month_str[match(div$month, months_equi$month)]
+div$month_str <- factor(div$month_str, levels = months_equi$month_str)
+
+div$period <- factor(div$period, levels = names(period_labs))
+
+div <- gather(div, "index", "value", -c(1, 2, 3, 6))
+
+ggplot(data = div, aes(x = month_str, y = value, fill = index)) +
+  geom_col(position = position_dodge()) +
+  facet_nested(cols = vars(year, period), scales = "free", space = "free", labeller = labeller(period = period_labs)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  ylab("index value") +
+  theme(axis.text.x = element_text(size = 10, angle = 80, hjust = 0, vjust = 0),
+        axis.title.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank())
+
 
 # Courbes d'abondance relative
 
 ab_plots <- lapply(unique(abund$order), function(i) {
-  ggplot(subset(abund, order == i), aes(x = sample, y = value)) +
+  ggplot(subset(abund, order == i), aes(x = month_str, y = value)) +
     geom_col() +
-    facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
-    guides(fill = guide_legend(ncol = 2)) +
-    theme(axis.text.x = element_blank(),
+    facet_nested(cols = vars(year, period), scales = "free", space = "free", labeller = labeller(period = period_labs)) +
+    theme(axis.text.x = element_text(size = 7, angle = 80, hjust = 0, vjust = 0),
+          axis.title.x = element_blank(),
           axis.text.y = element_text(size = 7),
           axis.title.y = element_blank(),
           legend.position = "none",
           panel.spacing = unit(0.1,'lines'),
           panel.grid.major.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
           strip.text.x = element_text(size = 7)) +
-    scale_y_continuous(limits = c(0, 1), breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+    scale_y_continuous(limits = c(0, 1), breaks = c(0, 0.25, 0.5, 0.75, 1), expand = c(0, 0)) +
     ggtitle(i)
 })
 
-grid.arrange(grobs = ab_plots, ncol = 4)
+grid.arrange(grobs = ab_plots, ncol = 4, nrow = 4)
 
 
 # Courbes de parametres physicochimiques ----------
@@ -290,7 +253,7 @@ var_plots <- lapply(unique(colnames(metadata))[-c(1:8)], function(i) {
     ggtitle(i)
 })
 
-suppressMessages(grid.arrange(grobs = var_plots, ncol = 4)) # bof bof
+suppressMessages(grid.arrange(grobs = var_plots, ncol = 3)) # bof bof
 
 # ACP ----------
 
@@ -339,7 +302,7 @@ PlotCorrelogram = function(matrix, title = "") {
   return(p)
 }
 
-variables_corr_table <- META_srf[8:22]
+variables_corr_table <- META_srf[8:16]
 rownames(variables_corr_table) <- META_srf$sample_id
 variables_corr_table <- drop_na(variables_corr_table)
 variables_corr_table <- cbind("period" = GetPeriod(rownames(variables_corr_table)), variables_corr_table)
@@ -388,12 +351,17 @@ OTU_corr_table <- cbind(group = OTU_to_group$group[match(OTU_to_group$OTU, rowna
 OTU_corr_table$group <- as.factor(OTU_corr_table$group)
 
 
-OTU_correlation <- ComputeCorrelation(as.data.frame(t(OTU_corr_table[, -c(1, 2)])), as.data.frame(drop_na(META_srf[8:22])))
+OTU_correlation <- ComputeCorrelation(as.data.frame(t(OTU_corr_table[, -c(1, 2)])), as.data.frame(drop_na(META_srf[8:16])))
 OTU_correlation <- cbind(group = OTU_corr_table$group[match(OTU_corr_table$OTU_name, rownames(OTU_correlation))], OTU_correlation)
 
 OTU_correlation <- drop_na(OTU_correlation)
 
+OTU_correlation <- OTU_correlation[order(OTU_correlation$group), ]
+
 pheatmap(t(OTU_correlation[-1]),
          annotation_col = OTU_correlation[1], 
          annotation_colors = list(group = group_palette), 
-         show_colnames = FALSE)
+         show_colnames = FALSE,
+         cluster_cols = FALSE)
+
+OTU_norm[OTU_norm$X == "df70605d2e764f7e03a6814509d358d9", ]
