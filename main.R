@@ -122,7 +122,7 @@ OTU_norm <- cbind(OTU[1], OTU_norm)
 abund <- cbind("class" = TAX$Class[which(OTU_norm$X == TAX$X)],
                "order" = TAX$Order[which(OTU_norm$X == TAX$X)],
                OTU_norm[-1])
-abund <- select(abund, -contains("dcm"))
+#abund <- select(abund, -contains("dcm"))
 
 abund <- gather(abund, "sample", "value", -c(1, 2))
 
@@ -130,18 +130,21 @@ abund <- abund %>%
   group_by(sample, class, order) %>%
   summarize(across(value, sum))
 
+abund$depth <- "surface"
+abund$depth[substring(abund$sample, 10, 12) == "dcm"] <- "dcm"
+
 abund$month <- GetMonth(abund$sample)
 abund$period <- GetPeriod(abund$sample)
 
 abund$year <- paste("20", substr(abund$sample, 3, 4), sep = "")
 
 abund <- abund %>%
-  group_by(order, month, year, period) %>%
+  group_by(order, month, year, period, depth) %>%
   summarize(across(value, mean))
 
 for (i in unique(abund$order)) {
-  abund <- rbind(abund, data.frame(order = i, month = "7", year = "2021", period = "S_2021", value = 0))
-  abund <- rbind(abund, data.frame(order = i, month = "9", year = "2021", period = "S_2021", value = 0))
+  abund <- rbind(abund, data.frame(order = i, month = "7", year = "2021", period = "S_2021", value = 0, depth = "all"))
+  abund <- rbind(abund, data.frame(order = i, month = "9", year = "2021", period = "S_2021", value = 0, depth = "all"))
 }
 
 abund$period <- factor(abund$period, levels = names(period_labs))
@@ -151,7 +154,7 @@ abund$month_str <- factor(abund$month_str, levels = months_equi$month_str)
 
 # Stacked barplot
 
-ggplot(data = abund, aes(x = month_str, fill = order, y = value)) +
+ggplot(data = subset(abund, depth %in% c("surface", "all")), aes(x = month_str, fill = order, y = value)) +
   geom_bar(stat = "identity") +
   facet_nested(cols = vars(year, period), space = "free", scales = "free", labeller = labeller(period = period_labs)) +
   guides(fill = guide_legend(ncol = 1)) +
@@ -211,8 +214,8 @@ ggplot(data = div, aes(x = month_str, y = value, fill = index)) +
 # Courbes d'abondance relative
 
 ab_plots <- lapply(unique(abund$order), function(i) {
-  ggplot(subset(abund, order == i), aes(x = month_str, y = value)) +
-    geom_col() +
+  ggplot(subset(abund, order == i), aes(x = month_str, y = value, fill = depth)) +
+    geom_bar(stat = "identity") +
     facet_nested(cols = vars(year, period), scales = "free", space = "free", labeller = labeller(period = period_labs)) +
     theme(axis.text.x = element_text(size = 7, angle = 80, hjust = 0, vjust = 0),
           axis.title.x = element_blank(),
@@ -224,11 +227,11 @@ ab_plots <- lapply(unique(abund$order), function(i) {
           panel.grid.minor.y = element_blank(),
           strip.text.x = element_text(size = 7)) +
     scale_y_continuous(limits = c(0, 1), breaks = c(0, 0.25, 0.5, 0.75, 1), expand = c(0, 0)) +
+    scale_fill_manual(values = depth_palette) +
     ggtitle(i)
 })
 
 grid.arrange(grobs = ab_plots, ncol = 4, nrow = 4)
-
 
 # Courbes de parametres physicochimiques ----------
 
@@ -339,29 +342,28 @@ corr_all_plot <- PlotCorrelogram(corr_all, title = "all periods")
 ggarrange(corr_m_plot, corr_b_plot, corr_s_plot, corr_all_plot, ncol = 2, nrow = 2)
 
 # Par OTU
-OTU_corr_table <- data.frame(select(OTU, -contains("dcm"))[-1])
+OTU_corr_table <- data.frame(OTU[-1])
 rownames(OTU_corr_table) <- paste("OTU_", seq(1, 531, 1), sep = "")
-OTU_corr_table <- rbind(TIN_NA_DROP = META_srf$TIN, OTU_corr_table)
+OTU_corr_table <- rbind(TIN_NA_DROP = META$TIN, OTU_corr_table)
 OTU_corr_table <- OTU_corr_table[, colSums(is.na(OTU_corr_table)) == 0]
 OTU_corr_table <- OTU_corr_table[-1, ]
 
-OTU_corr_table <- cbind(OTU_name = rownames(OTU_corr_table), OTU_corr_table)
-
 OTU_corr_table <- cbind(group = OTU_to_group$group[match(OTU_to_group$OTU, rownames(OTU_corr_table))], OTU_corr_table)
-OTU_corr_table$group <- as.factor(OTU_corr_table$group)
 
+OTU_corr_table <- rbind(period = NA, OTU_corr_table)
+OTU_corr_table["period", -1] <- substr(colnames(OTU_corr_table)[-1], 5, 6)
+OTU_corr_table[, (OTU_corr_table[1, ]) != "10"] <- gsub("0", "", OTU_corr_table[, (OTU_corr_table[1, ]) != "10"])
 
-OTU_correlation <- ComputeCorrelation(as.data.frame(t(OTU_corr_table[, -c(1, 2)])), as.data.frame(drop_na(META_srf[8:16])))
-OTU_correlation <- cbind(group = OTU_corr_table$group[match(OTU_corr_table$OTU_name, rownames(OTU_correlation))], OTU_correlation)
+OTU_correlation_dcm <- ComputeCorrelation(as.data.frame(t(select(OTU_corr_table, contains("dcm")))), as.data.frame(drop_na(META[META$depth == "dcm", 8:16])))
+OTU_correlation_dcm <- cbind(group = OTU_corr_table$group[match(rownames(OTU_corr_table), rownames(OTU_correlation_dcm))], OTU_correlation_dcm)
 
-OTU_correlation <- drop_na(OTU_correlation)
+#OTU_correlation <- drop_na(OTU_correlation)
 
-OTU_correlation <- OTU_correlation[order(OTU_correlation$group), ]
+OTU_correlation_dcm <- OTU_correlation_dcm[order(OTU_correlation_dcm$group), ]
 
-pheatmap(t(OTU_correlation[-1]),
-         annotation_col = OTU_correlation[1], 
+pheatmap(t(OTU_correlation_dcm[-1]),
+         annotation_col = OTU_correlation_dcm[1], 
          annotation_colors = list(group = group_palette), 
          show_colnames = FALSE,
-         cluster_cols = FALSE)
-
-OTU_norm[OTU_norm$X == "df70605d2e764f7e03a6814509d358d9", ]
+         cluster_cols = FALSE,
+         cluster_rows = FALSE)
