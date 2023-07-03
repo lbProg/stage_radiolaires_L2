@@ -60,7 +60,6 @@ OTU <- read.csv("Data/OTU_Radiolaria_GoA.csv")
 
 TAX <- cbind(OTU_name = paste("OTU_", sprintf("%03d", seq(1, 531, 1)), sep = ""), TAX)
 META <- subset(META, select = -c(phaeo, Si_TIN, Si_P, TIN_P, air_temp, solar_radiation))
-META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
 
 source("palettes.R")
 
@@ -96,22 +95,6 @@ summ <- data.frame("nb_OTUs" = nrow(OTU),
                   "nb_Radiolaria_X" = NumberOf("Radiolaria_X"))
 
 
-# Creation d'un tableau avec les ordres en colonnes et les echantillons en lignes
-
-orders_table <- cbind("order" = TAX$Order[which(OTU$X == TAX$X)], OTU[-1])
-#orders_table <- select(orders_table, -contains("dcm"))
-
-orders_table <- orders_table %>%
-  group_by(order) %>%
-  summarize_all(sum)
-
-orders_table <- as.data.frame(orders_table)
-
-rownames(orders_table) <- orders_table$order
-orders_table <- orders_table[-1]
-
-orders_table <- data.frame(t(orders_table))
-
 # Normalisation du tableau OTU (abondance) ----------
 
 OTU_norm <- mapply('/', OTU[-1], colSums(OTU[, -1]))
@@ -123,7 +106,6 @@ OTU_norm <- cbind(OTU[1], OTU_norm)
 abund <- cbind("class" = TAX$Class[which(OTU_norm$X == TAX$X)],
                "order" = TAX$Order[which(OTU_norm$X == TAX$X)],
                OTU_norm[-1])
-#abund <- select(abund, -contains("dcm"))
 
 abund <- gather(abund, "sample", "value", -c(1, 2))
 
@@ -155,7 +137,7 @@ abund$month_str <- factor(abund$month_str, levels = months_equi$month_str)
 
 # Stacked barplot
 
-ggplot(data = subset(abund, depth %in% c("surface", "all")), aes(x = month_str, fill = order, y = value)) +
+ggplot(data = subset(abund, depth %in% c("surface")), aes(x = month_str, fill = order, y = value)) +
   geom_bar(stat = "identity") +
   facet_nested(cols = vars(year, period), space = "free", scales = "free", labeller = labeller(period = period_labs)) +
   guides(fill = guide_legend(ncol = 1)) +
@@ -180,7 +162,6 @@ div <- data.frame("Shannon" = diversity(t(OTU[-1]), MARGIN = 1, index = "shannon
 div$Pielou <- div$Shannon / log(rowSums(t(OTU[-1]) != 0))
 
 div$month <- GetMonth(rownames(div))
-
 div$period <- GetPeriod(rownames(div))
 div$year <- paste("20", substr(rownames(div), 3, 4), sep = "")
 
@@ -283,6 +264,17 @@ ggarrange(mixing_PCA, bloom_PCA, strat_PCA, all_PCA, ncol = 2, nrow = 2)
 
 # Correlogrammes
 
+correlation_table <- gather(OTU, "sample", "value", -1)
+correlation_table$X <- paste("OTU_", sprintf("%03d", seq(1, 531, 1)), sep = "")
+correlation_table$order <- OTU_to_group$Order[match(correlation_table$X, OTU_to_group$OTU)]
+correlation_table$group <- OTU_to_group$group[match(correlation_table$X, OTU_to_group$OTU)]
+
+correlation_table$period <- GetPeriod(correlation_table$sample)
+correlation_table <- cbind(correlation_table, META[match(correlation_table$sample, META$sample_id), ][7:16])
+
+correlation_table <- drop_na(correlation_table)
+
+
 ComputeCorrelation = function(ind_table, var_table) {
   df <- data.frame(matrix(NA, nrow = ncol(ind_table), ncol = ncol(var_table)))
   colnames(df) <- colnames(var_table)
@@ -299,17 +291,6 @@ ComputeCorrelation = function(ind_table, var_table) {
 
 
 # Par OTU
-correlation_table <- gather(OTU, "sample", "value", -1)
-correlation_table$X <- paste("OTU_", sprintf("%03d", seq(1, 531, 1)), sep = "")
-correlation_table$order <- OTU_to_group$Order[match(correlation_table$X, OTU_to_group$OTU)]
-correlation_table$group <- OTU_to_group$group[match(correlation_table$X, OTU_to_group$OTU)]
-
-correlation_table$period <- GetPeriod(correlation_table$sample)
-correlation_table <- cbind(correlation_table, META[match(correlation_table$sample, META$sample_id), ][7:16])
-
-correlation_table <- drop_na(correlation_table)
-
-
 PlotOTUCorr = function(table, periods, depths) {
   table <- subset(table, period %in% periods & depth %in% depths)
   corr <- ComputeCorrelation(as.data.frame(df_mat(table, sample, X, value)),

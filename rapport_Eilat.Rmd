@@ -16,6 +16,7 @@ library(knitr)
 library(dplyr)
 library(ggplot2)
 library(tidyr)
+library(tidyft)
 library(ggfortify)
 library(gridExtra)
 library(vegan)
@@ -23,6 +24,7 @@ library(ggcorrplot)
 library(tseries)
 library(ggh4x)
 library(ggpubr)
+library(pheatmap)
 ```
 
 ## Définition de fonctions
@@ -30,23 +32,32 @@ library(ggpubr)
 ```{r}
 NumberOf = function(class) {
   # Returns the number of different families present in a Radiolarian class
-  
   return(length(unique(TAX$Family[TAX$Class == class])))
 }
 ```
 
 ```{r}
 GetPeriod = function(samples) {
-  # Associates a period to each sample
-  
+  # Generates a period column assigning a period to each sample of the dataframe
   m <- as.numeric(substr(samples, 5, 6))
   p <- paste(periods$period[match(m, periods$month_id)], "_20", substr(samples, 3, 4), sep = "")
-  p <- factor(p, levels = c("M_2_2020", "M_1_2021", "B_2021", "S_2021", 
-                            "M_2_2021", "M_1_2022", "B_2022", "S_2022"))
+  
+  p <- factor(p, levels = c("M_2_2020", "M_1_2021", "B_2021", "S_2021", "M_2_2021", "M_1_2022", "B_2022", "S_2022"))
   
   return(p)
 }
+```
 
+```{r}
+GetMonth = function(samples) {
+  # Generates a month id column
+  m <- substr(samples, 5, 6)
+  m[m != "10"] <- gsub("0", "", m[m != "10"])
+  
+  m <- factor(m, levels = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"))
+  
+  return(m)
+}
 ```
 
 
@@ -59,17 +70,19 @@ OTU <- read.csv("Data/OTU_Radiolaria_GoA.csv")
 ```
 
 ```{r}
-months_equi <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
-                          "month_str" = c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                                          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+TAX <- cbind(OTU_name = paste("OTU_", sprintf("%03d", seq(1, 531, 1)), sep = ""), TAX)
+META <- subset(META, select = -c(phaeo, Si_TIN, Si_P, TIN_P, air_temp, solar_radiation))
+```
+
+```{r}
+months_equi <- data.frame("month" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
+                          "month_str" = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
 periods <- data.frame("month_id" = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12),
                       "period" = c("M_1", "M_1", "B", "B", "S", "S", "S", "S", "S", "M_2", "M_2", "M_2"))
 
 period_labs <- c("M", "M", "B", "S", "M", "M", "B", "S")
 names(period_labs) <- c("M_2_2020", "M_1_2021", "B_2021", "S_2021",
                         "M_2_2021", "M_1_2022", "B_2022", "S_2022")
-
-META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
 ```
 
 Le tableau `periods` :
@@ -82,6 +95,11 @@ Le tableau `periods` :
 kable(t(periods))
 ```
 
+```{r}
+OTU_to_group <- data.frame(OTU = TAX$OTU_name, Class = TAX$Class, Order = TAX$Order, group = "")
+OTU_to_group$group <- OTU_to_group$Class
+OTU_to_group[OTU_to_group$Class == "Polycystinea", ]$group <- OTU_to_group[OTU_to_group$Class == "Polycystinea", ]$Order
+```
 
 ## Création de palettes de couleur
 
@@ -89,7 +107,6 @@ Une palette pour les ordres avec un gradient de bleus pour les acanthaires et un
 ```{r, warning=FALSE, message=FALSE}
 library(RColorBrewer)
 ```
-
 
 ```{r}
 order_palette <- c(colorRampPalette(brewer.pal(9, "Blues"))(10),
@@ -101,6 +118,9 @@ names(order_palette) <- c("Acantharea_1", "Acantharea_2", "Acantharea_3", "Acant
                           "Acantharea_A", "Acantharea_B", "Acantharea_C", "Acantharea_D",
                           "Acantharea_E", "Acantharea_F", "Nassellaria", "RAD-A_X",
                           "RAD-B_X", "RAD-C_X", "Radiolaria_XX", "Spumellaria")
+
+group_palette <- c("#084D96", "red", colorRampPalette(brewer.pal(3, "Oranges"))(4), "black")
+names(group_palette) <- c("Acantharea", "Nassellaria", "RAD-A", "RAD-B", "RAD-C", "Radiolaria_X", "Spumellaria")
 
 depth_palette <- c("#07b1f2", "#54d326")
 names(depth_palette) <- c("surface", "dcm")
@@ -118,7 +138,7 @@ summ <- data.frame("nb_OTUs" = nrow(OTU),
                   "mean_abund" = mean(as.matrix(OTU[-1])),
                   "nb_samples" = ncol(OTU[-1]),
                   "nb_days" = length(unique(substr(colnames(OTU[-1]), 3, 8))),
-                  "nb_variables" = ncol(META[7:22]),
+                  "nb_variables" = ncol(META[8:16]),
                   "nb_families" = length(unique(TAX$Family)),
                   "nb_Acantharea" = NumberOf("Acantharea"),
                   "nb_Polycystinea" = NumberOf("Polycystinea"),
@@ -132,6 +152,7 @@ summ <- data.frame("nb_OTUs" = nrow(OTU),
 summ
 ```
 
+
 ## Normalisation du tabeau d'OTU
 
 Chaque colonne est normalisée individuellement sur 1.
@@ -144,6 +165,7 @@ OTU_norm <- cbind(OTU[1], OTU_norm)
 kable(head(OTU_norm[1:8]))
 ```
 
+
 ## Création d'un tableau d'abondance
 
 Le tableau d'abondance contient une partie de la classification taxonomique, l'échantillon ainsi que la valeur d'abondance normalisée correspondant. Les échantillons prélevés au DCM ne sont pas pris en compte pour l'instant.
@@ -151,7 +173,6 @@ Le tableau d'abondance contient une partie de la classification taxonomique, l'�
 abund <- cbind("class" = TAX$Class[which(OTU_norm$X == TAX$X)],
                "order" = TAX$Order[which(OTU_norm$X == TAX$X)],
                OTU_norm[-1])
-abund <- select(abund, -contains("dcm"))
 abund <- gather(abund, "sample", "value", -c(1, 2))
 ```
 
@@ -170,27 +191,39 @@ abund <- abund %>%
 kable(head(abund))
 ```
 
-Une colonne qui contient le numéro de mois est rajoutée. Le format du mois est modifié pour la compatibilité (janvier 01 -> 1)
+Des colonnes contenant la profondeur, le mois, la période et l'année sont rajoutées.
 ```{r}
-abund$month <- substr(abund$sample, 5, 6)
-abund$month[abund$month != 10] <- gsub("0", "", abund$month[abund$month != 10])
-abund$month <- factor(abund$month, levels = c("1", "2", "3", "4", "5", "6", "8", "10", "11", "12"))
-```
+abund$depth <- "surface"
+abund$depth[substring(abund$sample, 10, 12) == "dcm"] <- "dcm"
 
-Une colonne `date` est rajoutée qui servira d'abscisse sur les graphiques.
-```{r}
-abund$date <- META_srf$date[match(abund$sample, META_srf$sample_id)]
-abund$date <- factor(abund$date, levels = unique(abund$date))
-```
-
-La période et l'année sont rajoutées au tableau.
-```{r}
+abund$month <- GetMonth(abund$sample)
 abund$period <- GetPeriod(abund$sample)
+
 abund$year <- paste("20", substr(abund$sample, 3, 4), sep = "")
 ```
 
 ```{r, echo=FALSE}
 kable(head(abund))
+```
+
+```{r}
+abund <- abund %>%
+  group_by(order, month, year, period, depth) %>%
+  summarize(across(value, mean))
+```
+
+```{r}
+for (i in unique(abund$order)) {
+  abund <- rbind(abund, data.frame(order = i, month = "7", year = "2021", period = "S_2021", value = 0, depth = "all"))
+  abund <- rbind(abund, data.frame(order = i, month = "9", year = "2021", period = "S_2021", value = 0, depth = "all"))
+}
+```
+
+```{r}
+abund$period <- factor(abund$period, levels = names(period_labs))
+
+abund$month_str <- months_equi$month_str[match(abund$month, months_equi$month)]
+abund$month_str <- factor(abund$month_str, levels = months_equi$month_str)
 ```
 
 
@@ -199,18 +232,21 @@ kable(head(abund))
 L'abondance relative de tous les ordres de Radiolaires est représentée pour chaque échantillon. Les couleurs sont similaires pour chaque groupe (les acanthaires en bleu et les groupes environnementaux en orange par exemple). Chaque échantillon correspond à une année et une période représentées en haut du graphique.
 
 ```{r, fig.width=12, fig.height=8}
-ggplot(data = abund, aes(x = sample, fill = order, y = value)) +
+ggplot(data = subset(abund, depth %in% c("surface", "all")), aes(x = month_str, fill = order, y = value)) +
   geom_bar(stat = "identity") +
-  facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
-  #guides(x = ggh4x::guide_axis_nested(delim = "&"), vjust = 1) +
+  facet_nested(cols = vars(year, period), space = "free", scales = "free", labeller = labeller(period = period_labs)) +
   guides(fill = guide_legend(ncol = 1)) +
   theme(legend.key.size = unit(0.4, 'cm'),
         legend.text = element_text(size = 10),
         axis.title.x = element_text(size = 8),
-        axis.text.x = element_text(size = 10, angle = 80, hjust = 1)) +
-  xlab("sample") +
+        axis.text.x = element_text(size = 10, angle = 80, hjust = 0, vjust = 0),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.spacing = unit(0.1, "lines"),) +
+  xlab("month") +
   ylab("abundance") +
-  ggtitle("Relative abundance of Radiolarian orders for each sampling date") +
+  ggtitle("Relative abundance of Radiolarian orders for each period") +
   scale_y_continuous(expand = c(0, 0)) +
   scale_fill_manual(values = order_palette)
 ```
@@ -229,67 +265,57 @@ Le tableau `div`va permettre de calculer et de représenter des indices de diver
 
 L'abondance de chaque OTU dans chaque échantillon est résumée à l'abondance de chaque ordre dans chaque échantillon.
 ```{r}
-div <- cbind("order" = TAX$Order[which(OTU$X == TAX$X)], OTU[-1])
-div <- select(div, -contains("dcm"))
-
-div <- div %>%
-  group_by(order) %>%
-  summarize_all(sum)
+div <- data.frame("Shannon" = diversity(t(OTU[-1]), MARGIN = 1, index = "shannon"))
+div$Pielou <- div$Shannon / log(rowSums(t(OTU[-1]) != 0))
 ```
 
 ```{r echo=FALSE}
-kable(head(div[1:8]))
+kable(head(div))
 ```
 
 ```{r}
-div <- as.data.frame(div)
-rownames(div) <- div$order
-div <- div[-1]
+div$month <- GetMonth(rownames(div))
+div$period <- GetPeriod(rownames(div))
+div$year <- paste("20", substr(rownames(div), 3, 4), sep = "")
 ```
 
-Le tableau est renversé afin d'avoir les échantillons en ligne et les ordres en colonnes.
 ```{r}
-div <- data.frame(t(div))
+div <- drop_na(div)
+
+div <- div %>%
+  group_by(month, period, year) %>%
+  summarize(across(c(Shannon, Pielou), mean))
 ```
 
-```{r, echo=FALSE}
-kable(head(div[1:8]))
-```
-
-Une colonne contenant le diversité de Shannon pour chaque échantillon est rajoutée, puis l'équitabilité de Pielou est calculée à partir de Shannon.
 ```{r}
-div <- cbind("Shannon" = diversity(div, MARGIN = 1, index = "shannon"), div)
-div <- cbind("Pielou" = div$Shannon / log(rowSums(div != 0)), div)
+div <- rbind(div, data.frame(month = "7", period = "S_2021", year = "2021", Shannon = 0, Pielou = 0))
+div <- rbind(div, data.frame(month = "9", period = "S_2021", year = "2021", Shannon = 0, Pielou = 0))
 ```
 
-Les colonnes `date`et `sample` sont rajoutées ce qui permet d'associer une période à chaque échantillon.
 ```{r}
-div <- cbind("date" = META_srf$date, div)
-div <- cbind("sample" = rownames(div), div)
+div$month_str <- months_equi$month_str[match(div$month, months_equi$month)]
+div$month_str <- factor(div$month_str, levels = months_equi$month_str)
 
-div$period <- GetPeriod(div$sample)
-div$year <- paste("20", substr(div$sample, 3, 4), sep = "")
+div$period <- factor(div$period, levels = names(period_labs))
 
-div$date <- factor(div$date, levels = unique(div$date))
+div <- gather(div, "index", "value", -c(1, 2, 3, 6))
 ```
 
-```{r, echo=FALSE}
-kable(head(div[-c(7:19)]))
-```
-
-```{r, fig.width=10}
-ggplot(data = div, aes(x = date)) +
-  geom_line(aes(y = Shannon, group = 1), colour = "red") +
-  geom_line(aes(y = 2*Pielou, group = 1), colour = "green") +
-  facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
-  scale_y_continuous(name = "Shannon diversity", 
-                     sec.axis = sec_axis(trans = ~./2, name = "Pielou evenness", breaks = seq(0, 1, 0.25))) +
-  theme(axis.text.x = element_text(size = 10, angle = 80, hjust = 1),
-        axis.title.y = element_text(color = "red"),
-        axis.title.y.right = element_text(color = "green"))
+```{r}
+ggplot(data = div, aes(x = month_str, y = value, fill = index)) +
+  geom_col(position = position_dodge()) +
+  facet_nested(cols = vars(year, period), scales = "free", space = "free", labeller = labeller(period = period_labs)) +
+  scale_y_continuous(expand = c(0, 0)) +
+  ylab("index value") +
+  theme(axis.text.x = element_text(size = 10, angle = 80, hjust = 0, vjust = 0),
+        axis.title.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank())
 ```
 
 L'indice d'équitabilité de Pielou est très similaire dans ses variations à l'indice de Shannon, mais avec des valeurs deux fois moins élevées. Dans les deux cas, les valeurs varient fortement pendant les périodes de bloom, et sont relativement stables pendant la stratification. La période de mixing 2020-2021 montre une diversité plus faible qu'en 2021-2022.
+
 
 ## Courbes d'abondance relative
 
@@ -297,24 +323,26 @@ L'abondance relative de chaque ordre est représentée individuellement. La coul
 
 ```{r}
 ab_plots <- lapply(unique(abund$order), function(i) {
-  ggplot(subset(abund, order == i), aes(x = sample, y = value)) +
-    geom_col() +
-    facet_nested(cols = vars(year, period), scales = "free", labeller = labeller(period = period_labs)) +
-    guides(fill = guide_legend(ncol = 2)) +
-    theme(axis.text.x = element_blank(),
+  ggplot(subset(abund, order == i), aes(x = month_str, y = value, fill = depth)) +
+    geom_bar(stat = "identity") +
+    facet_nested(cols = vars(year, period), scales = "free", space = "free", labeller = labeller(period = period_labs)) +
+    theme(axis.text.x = element_text(size = 7, angle = 80, hjust = 0, vjust = 0),
+          axis.title.x = element_blank(),
           axis.text.y = element_text(size = 7),
           axis.title.y = element_blank(),
           legend.position = "none",
           panel.spacing = unit(0.1,'lines'),
           panel.grid.major.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
           strip.text.x = element_text(size = 7)) +
-    scale_y_continuous(limits = c(0, 1), breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+    scale_y_continuous(limits = c(0, 1), breaks = c(0, 0.25, 0.5, 0.75, 1), expand = c(0, 0)) +
+    scale_fill_manual(values = depth_palette) +
     ggtitle(i)
 })
 ```
 
 ```{r, fig.width=10, fig.height=8}
-grid.arrange(grobs = ab_plots, ncol = 4)
+grid.arrange(grobs = ab_plots, ncol = 4, nrow = 4)
 ```
 
 Les variations temporelles de chaque ordre sont représentées.  
@@ -353,15 +381,16 @@ var_plots <- lapply(unique(colnames(metadata))[-c(1:8)], function(i) {
 ```
 
 ```{r eval=FALSE, include=FALSE}
-grid.arrange(grobs = var_plots, ncol = 4)
+grid.arrange(grobs = var_plots, ncol = 3)
 ```
 
 ```{r, echo=FALSE, fig.width=10, fig.height=8}
-suppressMessages(grid.arrange(grobs = var_plots, ncol = 4))
+suppressMessages(grid.arrange(grobs = var_plots, ncol = 3))
 ```
 
 Les variables temp, PO4, TIN, solar_radiation, wind_speed, PAR et UV montrent une saisonnalité marquée.  
 Les variables salinity, chl, phaeo, silica, TIN, SI_TIN, SI_P et TIN_P montrent toutes un pic particulièrement élevé en 2022 en période de bloom et stratification ce qui correspond aux pics d'abondance vus avant chez Acantharea_B, Acantharea_D, Acantharea_F, RAD-A_X et RAD-B_X.
+
 
 ## ACP
 
@@ -376,10 +405,10 @@ PC_data <- cbind(period = GetPeriod(PC_data$sample_id), PC_data)
 PCAForPeriod = function(p, title = paste(p, collapse = " - ")) {
   data = subset(PC_data, period %in% p)
   # Enlever colonnes avec une variance nulle
-  pca <- prcomp(data[9:23][, which(apply(data[9:23], 2, var) != 0)], scale = TRUE)
+  pca <- prcomp(data[9:17][, which(apply(data[9:17], 2, var) != 0)], scale = TRUE)
   
   a <- autoplot(pca, data = data, size = 3, colour = "depth", loadings = TRUE, 
-                loadings.label = TRUE, loadings.label.colour = "black", loadings.label.size = 3)
+                loadings.label = TRUE, loadings.label.colour = "black")
   return(a + ggtitle(title) + scale_color_manual(values = depth_palette))
 }
 ```
@@ -396,28 +425,34 @@ all_PCA <- PCAForPeriod(unique(PC_data$period), "all periods")
 ggarrange(mixing_PCA, bloom_PCA, strat_PCA, all_PCA, ncol = 2, nrow = 2)
 ```
 
-
 L'ACP représente 50 à 60 % de la variablilité des données.
+
 
 ## Corrélogrammes
 
 La table de corrélation montre le nombre d'individus d'un ordre ainsi que les valeurs des paramètres physicochimiques pour chaque échantillon.
 ```{r}
-cor_table <- cbind(div[5:20], META_srf[8:22])
-cor_table <- drop_na(cor_table)
-cor_table <- cbind("period" = GetPeriod(rownames(cor_table)), cor_table)
+correlation_table <- gather(OTU, "sample", "value", -1)
+correlation_table$X <- paste("OTU_", sprintf("%03d", seq(1, 531, 1)), sep = "")
+correlation_table$order <- OTU_to_group$Order[match(correlation_table$X, OTU_to_group$OTU)]
+correlation_table$group <- OTU_to_group$group[match(correlation_table$X, OTU_to_group$OTU)]
+
+correlation_table$period <- GetPeriod(correlation_table$sample)
+correlation_table <- cbind(correlation_table, META[match(correlation_table$sample, META$sample_id), ][7:16])
+
+correlation_table <- drop_na(correlation_table)
 ```
 
 La fonction `ComputeCorrelation()` calcule la valeur de la corrélation entre chaque ordre de Radiolaires et chaque paramètre physicochimique et stocke les résultats dans une matrice de corrélation.
 ```{r}
-ComputeCorrelation = function(cor_table_subset) {
-  df <- data.frame(matrix(NA, nrow = 16, ncol = 15))
-  rownames(df) <- colnames(cor_table_subset[1:16])
-  colnames(df) <- colnames(cor_table_subset[17:31])
+ComputeCorrelation = function(ind_table, var_table) {
+  df <- data.frame(matrix(NA, nrow = ncol(ind_table), ncol = ncol(var_table)))
+  colnames(df) <- colnames(var_table)
+  rownames(df) <- colnames(ind_table)
   
   for (var in colnames(df)) {
-    for (order in rownames(df)) {
-      df[order, var] <- round(cor(cor_table_subset[order], cor_table_subset[var]), 2)
+    for (ind in rownames(df)) {
+      df[ind, var] <- round(cor(ind_table[ind], var_table[var]), 2)
     }
   }
   
@@ -425,41 +460,66 @@ ComputeCorrelation = function(cor_table_subset) {
 }
 ```
 
-Corrélation des ordres ainsi que des paramètres physicochimiques entre eux :
-```{r, fig.width = 10}
-orders_corr <- ggcorrplot(cor(cor_table[2:17]), hc.order = TRUE, title = "orders")
-variables_corr <- ggcorrplot(cor(cor_table[18:32]), hc.order = TRUE, title = "variables")
-
-ggarrange(orders_corr, variables_corr, ncol = 2, nrow = 1)
-```
-
-Corrélation pour chaque périodes des ordres avec les paramètres physicochimiques :
 ```{r}
-PlotCorrelogram = function(matrix, title) {
-  p <- ggcorrplot(matrix, title = title) +
-    theme(axis.text.x = element_text(size = 8),
-          axis.text.y = element_text(size = 8))
+PlotOTUCorr = function(table, periods, depths) {
+  table <- subset(table, period %in% periods & depth %in% depths)
+  corr <- ComputeCorrelation(as.data.frame(df_mat(table, sample, X, value)),
+                             table[match(unique(table$sample), table$sample), ][8:16])
+  corr <- cbind(group = table$group[match(rownames(corr), table$X)], corr)
+  corr <- corr[order(corr$group), ]
+  
+  pheatmap(t(corr[-1]),
+           annotation_col = corr[1],
+           annotation_colors = list(group = group_palette),
+           main = paste(paste(periods, collapse = " - "), " / ", paste(depths, collapse = " - ")),
+           show_colnames = FALSE,
+           cluster_cols = FALSE,
+           cluster_rows = FALSE)
 }
 ```
 
-```{r include=FALSE}
-corr_mixing <- ComputeCorrelation(subset(cor_table, period %in% c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"))[-1])
-corr_m_plot <- PlotCorrelogram(corr_mixing, "mixing")
-
-corr_bloom <- ComputeCorrelation(subset(cor_table, period %in% c("B_2021", "B_2022"))[-1])
-corr_b_plot <- PlotCorrelogram(corr_bloom, title = "bloom")
-
-corr_strat <- ComputeCorrelation(subset(cor_table, period %in% c("S_2021", "S_2022"))[-1])
-corr_s_plot <- PlotCorrelogram(corr_strat, title = "stratification")
-
-corr_all <- ComputeCorrelation(cor_table[-1])
-corr_all_plot <- PlotCorrelogram(corr_all, title = "all periods")
+```{r}
+PlotOrderCorr = function(table, periods, depths) {
+  table <- subset(table, period %in% periods & depth %in% depths) %>%
+    group_by(sample, order, period, depth, temp, salinity, chl, PO4, Silica, TIN, wind_speed, PAR, UV) %>%
+    summarize(across(value, sum))
+  corr <- ComputeCorrelation(as.data.frame(df_mat(table, sample, order, value)),
+                             as.data.frame(df_mat(table, sample, order, value)))
+  pheatmap(corr,
+           main = paste(paste(periods, collapse = " - "), " / ", paste(depths, collapse = " - ")),
+           cluster_cols = FALSE,
+           cluster_rows = FALSE)
+}
 ```
 
-```{r, fig.width = 10, fig.height=10}
-ggarrange(corr_m_plot, corr_b_plot, corr_s_plot, corr_all_plot, ncol = 2, nrow = 2)
+```{r}
+PlotVariableCorr = function(table, periods, depths) {
+  table <- subset(table, period %in% periods & depth %in% depths)
+  corr <- ComputeCorrelation(table[match(unique(table$sample), table$sample), ][8:16],
+                             table[match(unique(table$sample), table$sample), ][8:16])
+  pheatmap(corr,
+           main = paste(paste(periods, collapse = " - "), " / ", paste(depths, collapse = " - ")),
+           cluster_cols = FALSE,
+           cluster_rows = FALSE)
+}
+```
+
+```{r, echo=FALSE}
+suppressWarnings(PlotOTUCorr(correlation_table, c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"), c("surface")))
+suppressWarnings(PlotOTUCorr(correlation_table, c("B_2021", "B_2022"), c("surface")))
+suppressWarnings(PlotOTUCorr(correlation_table, c("S_2021", "S_2022"), c("dcm")))
 ```
 
 
+```{r, echo=FALSE}
+suppressWarnings(PlotOrderCorr(correlation_table, c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"), c("surface")))
+suppressWarnings(PlotOrderCorr(correlation_table, c("B_2021", "B_2022"), c("surface")))
+suppressWarnings(PlotOrderCorr(correlation_table, c("S_2021", "S_2022"), c("dcm")))
+```
 
+```{r, echo=FALSE}
+suppressWarnings(PlotVariableCorr(correlation_table, c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"), c("surface")))
+suppressWarnings(PlotVariableCorr(correlation_table, c("B_2021", "B_2022"), c("surface")))
+suppressWarnings(PlotVariableCorr(correlation_table, c("S_2021", "S_2022"), c("dcm")))
+```
 
