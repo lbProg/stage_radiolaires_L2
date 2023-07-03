@@ -59,7 +59,7 @@ META <- read.csv("Data/META_Radiolaria_GoA.csv")
 OTU <- read.csv("Data/OTU_Radiolaria_GoA.csv")
 
 TAX <- cbind(OTU_name = paste("OTU_", sprintf("%03d", seq(1, 531, 1)), sep = ""), TAX)
-META <- select(META, -c("phaeo", "Si_TIN", "Si_P", "TIN_P", "air_temp", "solar_radiation"))
+META <- subset(META, select = -c(phaeo, Si_TIN, Si_P, TIN_P, air_temp, solar_radiation))
 META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
 
 source("palettes.R")
@@ -99,7 +99,7 @@ summ <- data.frame("nb_OTUs" = nrow(OTU),
 # Creation d'un tableau avec les ordres en colonnes et les echantillons en lignes
 
 orders_table <- cbind("order" = TAX$Order[which(OTU$X == TAX$X)], OTU[-1])
-orders_table <- select(orders_table, -contains("dcm"))
+#orders_table <- select(orders_table, -contains("dcm"))
 
 orders_table <- orders_table %>%
   group_by(order) %>%
@@ -176,8 +176,8 @@ ggplot(data = subset(abund, depth %in% c("surface", "all")), aes(x = month_str, 
 
 # Divesite de Shannon et equitabilite de Pielou
 
-div <- data.frame("Shannon" = diversity(orders_table, MARGIN = 1, index = "shannon"))
-div$Pielou <- div$Shannon / log(rowSums(orders_table != 0))
+div <- data.frame("Shannon" = diversity(t(OTU[-1]), MARGIN = 1, index = "shannon"))
+div$Pielou <- div$Shannon / log(rowSums(t(OTU[-1]) != 0))
 
 div$month <- GetMonth(rownames(div))
 
@@ -267,7 +267,7 @@ PC_data <- cbind(period = GetPeriod(PC_data$sample_id), PC_data)
 PCAForPeriod = function(p, title = paste(p, collapse = " - ")) {
   data = subset(PC_data, period %in% p)
   # Enlever colonnes avec une variance nulle
-  pca <- prcomp(data[9:23][, which(apply(data[9:23], 2, var) != 0)], scale = TRUE)
+  pca <- prcomp(data[9:17][, which(apply(data[9:17], 2, var) != 0)], scale = TRUE)
   
   a <- autoplot(pca, data = data, size = 3, colour = "depth", loadings = TRUE, loadings.label = TRUE, loadings.label.colour = "black")
   return(a + ggtitle(title) + scale_color_manual(values = depth_palette))
@@ -297,50 +297,6 @@ ComputeCorrelation = function(ind_table, var_table) {
   return(df)
 }
 
-PlotCorrelogram = function(matrix, title = "") {
-  p <- ggcorrplot(matrix, title = title) +
-    theme(axis.text.x = element_text(size = 8),
-          axis.text.y = element_text(size = 6),
-          legend.position = "none")
-  
-  return(p)
-}
-
-variables_corr_table <- META_srf[8:16]
-rownames(variables_corr_table) <- META_srf$sample_id
-variables_corr_table <- drop_na(variables_corr_table)
-variables_corr_table <- cbind("period" = GetPeriod(rownames(variables_corr_table)), variables_corr_table)
-
-orders_corr_table <- orders_table
-orders_corr_table$NA_DROP <- META_srf$TIN
-orders_corr_table <- drop_na(orders_corr_table)
-orders_corr_table <- subset(orders_corr_table, select = -NA_DROP)
-orders_corr_table <- cbind("period" = GetPeriod(rownames(orders_corr_table)), orders_corr_table)
-
-orders_corr_plot <- ggcorrplot(cor(orders_corr_table[-1]), hc.order = TRUE, title = "orders")
-variables_corr_plot <- ggcorrplot(cor(variables_corr_table[-1]), hc.order = TRUE, title = "variables")
-
-ggarrange(orders_corr_plot, variables_corr_plot, ncol = 2, nrow = 1)
-
-
-# Pour chaque periode
-corr_mixing <- ComputeCorrelation(subset(orders_corr_table, period %in% c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"))[-1],
-                                  subset(variables_corr_table, period %in% c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"))[-1])
-corr_m_plot <- PlotCorrelogram(corr_mixing, "mixing")
-
-corr_bloom <- ComputeCorrelation(subset(orders_corr_table, period %in% c("B_2021", "B_2022"))[-1],
-                                 subset(variables_corr_table, period %in% c("B_2021", "B_2022"))[-1])
-corr_b_plot <- PlotCorrelogram(corr_bloom, title = "bloom")
-
-corr_strat <- ComputeCorrelation(subset(orders_corr_table, period %in% c("S_2021", "S_2022"))[-1],
-                                 subset(variables_corr_table, period %in% c("S_2021", "S_2022"))[-1])
-corr_s_plot <- PlotCorrelogram(corr_strat, title = "stratification")
-
-corr_all <- ComputeCorrelation(orders_corr_table[-1],
-                               variables_corr_table[-1])
-corr_all_plot <- PlotCorrelogram(corr_all, title = "all periods")
-
-ggarrange(corr_m_plot, corr_b_plot, corr_s_plot, corr_all_plot, ncol = 2, nrow = 2)
 
 # Par OTU
 correlation_table <- gather(OTU, "sample", "value", -1)
@@ -354,15 +310,57 @@ correlation_table <- cbind(correlation_table, META[match(correlation_table$sampl
 correlation_table <- drop_na(correlation_table)
 
 
-corr <- ComputeCorrelation(as.data.frame(df_mat(correlation_table, sample, X, value)),
-                           correlation_table[match(unique(correlation_table$sample), correlation_table$sample), ][8:16])
+PlotOTUCorr = function(table, periods, depths) {
+  table <- subset(table, period %in% periods & depth %in% depths)
+  corr <- ComputeCorrelation(as.data.frame(df_mat(table, sample, X, value)),
+                             table[match(unique(table$sample), table$sample), ][8:16])
+  corr <- cbind(group = table$group[match(rownames(corr), table$X)], corr)
+  corr <- corr[order(corr$group), ]
+  
+  pheatmap(t(corr[-1]),
+           annotation_col = corr[1],
+           annotation_colors = list(group = group_palette),
+           main = paste(paste(periods, collapse = " - "), " / ", paste(depths, collapse = " - ")),
+           show_colnames = FALSE,
+           cluster_cols = FALSE,
+           cluster_rows = FALSE)
+}
 
-corr <- cbind(group = correlation_table$group[match(rownames(corr), correlation_table$X)], corr)
-corr <- corr[order(corr$group), ]
+PlotOTUCorr(correlation_table, c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"), c("surface"))
+PlotOTUCorr(correlation_table, c("B_2021", "B_2022"), c("surface"))
+PlotOTUCorr(correlation_table, c("S_2021", "S_2022"), c("dcm"))
 
-pheatmap(t(corr[-1]),
-         annotation_col = corr[1], 
-         annotation_colors = list(group = group_palette), 
-         show_colnames = FALSE,
-         cluster_cols = FALSE,
-         cluster_rows = FALSE)
+
+# Par ordre
+PlotOrderCorr = function(table, periods, depths) {
+  table <- subset(table, period %in% periods & depth %in% depths) %>%
+    group_by(sample, order, period, depth, temp, salinity, chl, PO4, Silica, TIN, wind_speed, PAR, UV) %>%
+    summarize(across(value, sum))
+  corr <- ComputeCorrelation(as.data.frame(df_mat(table, sample, order, value)),
+                             as.data.frame(df_mat(table, sample, order, value)))
+  pheatmap(corr,
+           main = paste(paste(periods, collapse = " - "), " / ", paste(depths, collapse = " - ")),
+           cluster_cols = FALSE,
+           cluster_rows = FALSE)
+}
+
+
+PlotOrderCorr(correlation_table, c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"), c("surface"))
+PlotOrderCorr(correlation_table, c("B_2021", "B_2022"), c("surface"))
+PlotOrderCorr(correlation_table, c("S_2021", "S_2022"), c("dcm"))
+
+
+# Par variable
+PlotVariableCorr = function(table, periods, depths) {
+  table <- subset(table, period %in% periods & depth %in% depths)
+  corr <- ComputeCorrelation(table[match(unique(table$sample), table$sample), ][8:16],
+                             table[match(unique(table$sample), table$sample), ][8:16])
+  pheatmap(corr,
+           main = paste(paste(periods, collapse = " - "), " / ", paste(depths, collapse = " - ")),
+           cluster_cols = FALSE,
+           cluster_rows = FALSE)
+}
+
+PlotVariableCorr(correlation_table, c("M_2_2020", "M_1_2021", "M_2_2021", "M_1_2022"), c("surface"))
+PlotVariableCorr(correlation_table, c("B_2021", "B_2022"), c("surface"))
+PlotVariableCorr(correlation_table, c("S_2021", "S_2022"), c("dcm"))
