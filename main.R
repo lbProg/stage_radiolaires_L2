@@ -14,6 +14,7 @@
 library(dplyr)
 library(ggplot2)
 library(tidyr)
+library(tidyft)
 library(ggfortify)
 library(gridExtra)
 library(vegan)
@@ -57,7 +58,7 @@ TAX <- read.csv("Data/TAX_pr2_Radiolaria_GoA.csv")
 META <- read.csv("Data/META_Radiolaria_GoA.csv")
 OTU <- read.csv("Data/OTU_Radiolaria_GoA.csv")
 
-TAX <- cbind(OTU_name = paste("OTU_", seq(1, 531, 1), sep = ""), TAX)
+TAX <- cbind(OTU_name = paste("OTU_", sprintf("%03d", seq(1, 531, 1)), sep = ""), TAX)
 META <- select(META, -c("phaeo", "Si_TIN", "Si_P", "TIN_P", "air_temp", "solar_radiation"))
 META_srf <- META[!grepl("dcm", fixed = TRUE, META$sample_id),]
 
@@ -342,27 +343,25 @@ corr_all_plot <- PlotCorrelogram(corr_all, title = "all periods")
 ggarrange(corr_m_plot, corr_b_plot, corr_s_plot, corr_all_plot, ncol = 2, nrow = 2)
 
 # Par OTU
-OTU_corr_table <- data.frame(OTU[-1])
-rownames(OTU_corr_table) <- paste("OTU_", seq(1, 531, 1), sep = "")
-OTU_corr_table <- rbind(TIN_NA_DROP = META$TIN, OTU_corr_table)
-OTU_corr_table <- OTU_corr_table[, colSums(is.na(OTU_corr_table)) == 0]
-OTU_corr_table <- OTU_corr_table[-1, ]
+correlation_table <- gather(OTU, "sample", "value", -1)
+correlation_table$X <- paste("OTU_", sprintf("%03d", seq(1, 531, 1)), sep = "")
+correlation_table$order <- OTU_to_group$Order[match(correlation_table$X, OTU_to_group$OTU)]
+correlation_table$group <- OTU_to_group$group[match(correlation_table$X, OTU_to_group$OTU)]
 
-OTU_corr_table <- cbind(group = OTU_to_group$group[match(OTU_to_group$OTU, rownames(OTU_corr_table))], OTU_corr_table)
+correlation_table$period <- GetPeriod(correlation_table$sample)
+correlation_table <- cbind(correlation_table, META[match(correlation_table$sample, META$sample_id), ][7:16])
 
-OTU_corr_table <- rbind(period = NA, OTU_corr_table)
-OTU_corr_table["period", -1] <- substr(colnames(OTU_corr_table)[-1], 5, 6)
-OTU_corr_table[, (OTU_corr_table[1, ]) != "10"] <- gsub("0", "", OTU_corr_table[, (OTU_corr_table[1, ]) != "10"])
+correlation_table <- drop_na(correlation_table)
 
-OTU_correlation_dcm <- ComputeCorrelation(as.data.frame(t(select(OTU_corr_table, contains("dcm")))), as.data.frame(drop_na(META[META$depth == "dcm", 8:16])))
-OTU_correlation_dcm <- cbind(group = OTU_corr_table$group[match(rownames(OTU_corr_table), rownames(OTU_correlation_dcm))], OTU_correlation_dcm)
 
-#OTU_correlation <- drop_na(OTU_correlation)
+corr <- ComputeCorrelation(as.data.frame(df_mat(correlation_table, sample, X, value)),
+                           correlation_table[match(unique(correlation_table$sample), correlation_table$sample), ][8:16])
 
-OTU_correlation_dcm <- OTU_correlation_dcm[order(OTU_correlation_dcm$group), ]
+corr <- cbind(group = correlation_table$group[match(rownames(corr), correlation_table$X)], corr)
+corr <- corr[order(corr$group), ]
 
-pheatmap(t(OTU_correlation_dcm[-1]),
-         annotation_col = OTU_correlation_dcm[1], 
+pheatmap(t(corr[-1]),
+         annotation_col = corr[1], 
          annotation_colors = list(group = group_palette), 
          show_colnames = FALSE,
          cluster_cols = FALSE,
